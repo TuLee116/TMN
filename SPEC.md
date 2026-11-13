@@ -10,7 +10,8 @@ Dựng lại web thi `exam-tan-minh-nhan.vercel.app` (bản cũ: React/Vite + AP
 - `server/attempts.js` (chấm điểm, nộp bài, chốt bài quá hạn), `server/importer.js` (đọc/mẫu Excel–Word câu hỏi, danh sách email), `server/pdf.js` (PDF đối chiếu / hồ sơ, font DejaVu), `server/export.js` (ZIP Excel tổng hợp + PDF).
 - Upload tệp (import) gửi thân request là nội dung tệp nhị phân, ví dụ `POST /api/admin/import?format=xlsx&mode=replace&dryRun=1`.
 - `PG_POOL_MAX` (tùy chọn) giới hạn số kết nối Postgres.
-- **Còn phải làm:** toàn bộ `client/` (React: trang thí sinh, admin 6 tab, giám sát webcam), `vite.config.js`, `railway.json`/README.
+- `client/`: React – `candidate/` (Landing, ExamView, ResultView, WebcamMonitor + `webcam.js`), `admin/` (6 tab + AttemptDetail), `lib/` (api, format, ui). `vite.config.js` (root `client`, build ra `dist/`), `railway.json`, `README.md`.
+- **Còn phải làm:** chạy thử giám sát webcam với camera thật và chỉnh ngưỡng mặc định.
 
 ## Biến môi trường
 | Biến | Ý nghĩa |
