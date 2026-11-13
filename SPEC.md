@@ -6,7 +6,11 @@ Dựng lại web thi `exam-tan-minh-nhan.vercel.app` (bản cũ: React/Vite + AP
 - `package.json`: đã khai báo thư viện (express, pg, exceljs, mammoth, docx, pdfkit, archiver, dejavu-fonts-ttf, react, vite, tailwind, @mediapipe/tasks-vision). Build deps để ở `dependencies` để Railway build được.
 - `server/db.js`: schema Postgres (app_settings, projects, participants, questions, exam_attempts, exam_events) + DEFAULT_SETTINGS.
 - `server/util.js`: giờ VN, cookie ký HMAC, kiểm tra email domain, tính điểm, các mốc phân bố điểm.
-- **Còn phải làm:** `server/index.js` (routes), import/xuất mẫu câu hỏi, PDF, ZIP, toàn bộ `client/`, `vite.config.js`, `railway.json`/README.
+- `server/index.js`: toàn bộ API thí sinh + admin (mục API bên dưới), thêm `admin/questions`, `admin/attempt`, `admin/attempt-pdf`, `admin/logo`, `admin/me|logout`, `GET /api/logo`, `/mediapipe/wasm` (phục vụ WASM MediaPipe từ node_modules).
+- `server/attempts.js` (chấm điểm, nộp bài, chốt bài quá hạn), `server/importer.js` (đọc/mẫu Excel–Word câu hỏi, danh sách email), `server/pdf.js` (PDF đối chiếu / hồ sơ, font DejaVu), `server/export.js` (ZIP Excel tổng hợp + PDF).
+- Upload tệp (import) gửi thân request là nội dung tệp nhị phân, ví dụ `POST /api/admin/import?format=xlsx&mode=replace&dryRun=1`.
+- `PG_POOL_MAX` (tùy chọn) giới hạn số kết nối Postgres.
+- **Còn phải làm:** toàn bộ `client/` (React: trang thí sinh, admin 6 tab, giám sát webcam), `vite.config.js`, `railway.json`/README.
 
 ## Biến môi trường
 | Biến | Ý nghĩa |

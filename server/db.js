@@ -1,6 +1,9 @@
 import pg from 'pg';
 
-const { Pool } = pg;
+const { Pool, types } = pg;
+
+// NUMERIC -> number (mặc định pg trả chuỗi)
+types.setTypeParser(1700, (v) => (v == null ? null : parseFloat(v)));
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
@@ -13,7 +16,7 @@ const useSsl = /sslmode=require/.test(connectionString) || process.env.PGSSL ===
 export const pool = new Pool({
   connectionString,
   ssl: useSsl ? { rejectUnauthorized: false } : undefined,
-  max: 10,
+  max: Number(process.env.PG_POOL_MAX || 10),
 });
 
 export const q = (text, params) => pool.query(text, params);
