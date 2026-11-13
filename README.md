@@ -59,7 +59,7 @@ http://localhost:5173 (Vite chuyển `/api` và `/mediapipe` sang cổng 3000).
 3. Service web → **Variables**: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `ADMIN_PASSWORD`, `SESSION_SECRET`.
 4. **Settings → Networking → Generate Domain**.
 
-`railway.json` đã đặt lệnh build (`npm ci && npm run build`), lệnh chạy (`npm start`) và kiểm tra sống `/healthz`.
+`railway.json` đã đặt lệnh build (`npm run build`; Railway tự chạy `npm ci` trước), lệnh chạy (`npm start`) và kiểm tra sống `/healthz`.
 Bảng dữ liệu tự tạo khi khởi động. Logo tải lên trong tab **Cấu hình**.
 
 ## Quy trình một kỳ thi
