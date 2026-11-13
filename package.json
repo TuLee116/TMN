@@ -1,0 +1,32 @@
+{
+  "name": "tmn-exam",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hệ thống kiểm tra nội bộ Tân Minh Nhân",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^1.2.3",
+    "@tailwindcss/vite": "^4.3.5",
+    "@vitejs/plugin-react": "^6.3.0",
+    "archiver": "^8.0.0",
+    "dejavu-fonts-ttf": "^2.37.3",
+    "docx": "^9.15.3",
+    "exceljs": "^4.4.0",
+    "express": "^5.3.0",
+    "mammoth": "^1.13.0",
+    "pdfkit": "^0.20.2",
+    "pg": "^8.23.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.5",
+    "vite": "^8.3.8"
+  }
+}
