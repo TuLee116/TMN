@@ -111,6 +111,38 @@ export default function SettingsTab() {
             <Check label="Hiện tổng điểm cho thí sinh" hint="Hiện sau khi chấm xong tự luận" checked={form.showScore} onChange={set('showScore')} />
             <Check label="Xáo trộn thứ tự câu hỏi" checked={form.shuffleQuestions} onChange={set('shuffleQuestions')} />
           </div>
+          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+            <Check
+              label="Rút câu trắc nghiệm theo tỷ lệ độ khó"
+              hint="Mỗi thí sinh nhận cùng cơ cấu Dễ / Trung bình / Khó. Thiếu câu ở mức nào sẽ bù bằng câu khác."
+              checked={form.mixEnabled}
+              onChange={set('mixEnabled')}
+            />
+            {form.mixEnabled && (
+              <div className="mt-3 grid gap-3 sm:grid-cols-4 sm:items-end">
+                {[
+                  ['mixEasy', 'Dễ (%)'],
+                  ['mixMedium', 'Trung bình (%)'],
+                  ['mixHard', 'Khó (%)'],
+                ].map(([k, l]) => (
+                  <Field key={k} label={l}>
+                    <input type="number" min="0" max="100" className={inputCls} value={form[k]} onChange={num(k)} />
+                  </Field>
+                ))}
+                {(() => {
+                  const sum = (Number(form.mixEasy) || 0) + (Number(form.mixMedium) || 0) + (Number(form.mixHard) || 0);
+                  const n = Number(form.multipleChoiceCount) || 0;
+                  const e = Math.round((n * (Number(form.mixEasy) || 0)) / 100);
+                  const h = Math.round((n * (Number(form.mixHard) || 0)) / 100);
+                  return (
+                    <div className={`rounded-lg px-3 py-2 text-sm ${sum === 100 ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>
+                      Tổng {sum}%{sum === 100 ? ` → ${e} dễ · ${Math.max(0, n - e - h)} TB · ${h} khó` : ' (phải bằng 100%)'}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
         </Card>
 
         <Card title={<Anchor id="noi-dung">Nội dung hiển thị cho thí sinh</Anchor>} className="mt-6">

@@ -3,7 +3,7 @@ import { round2, sameSet, to10, maxScoreOf, TEST_MODE } from './util.js';
 
 /** Toàn bộ câu hỏi (kể cả đã ẩn) theo id – ngân hàng nhỏ nên nạp một lần */
 export async function questionMap() {
-  const r = await q(`SELECT id, type, text, options, correct, reference, active, position FROM questions`);
+  const r = await q(`SELECT id, type, text, options, correct, reference, active, position, topic, difficulty FROM questions`);
   return new Map(r.rows.map((x) => [x.id, x]));
 }
 
@@ -133,6 +133,24 @@ export async function regrade(attemptId, essayScores) {
     );
     return u.rows[0];
   });
+}
+
+/** Tính lại điểm mọi bài đã nộp có chứa câu hỏi (sau khi sửa đáp án đúng) */
+export async function regradeQuestion(questionId) {
+  const qmap = await questionMap();
+  const r = await q(`SELECT * FROM exam_attempts WHERE submitted_at IS NOT NULL AND question_ids @> $1::jsonb`, [JSON.stringify([questionId])]);
+  for (const a of r.rows) {
+    const g = grade(a, qmap);
+    await q(`UPDATE exam_attempts SET mc_correct=$2, mc_score=$3, total_score=$4, max_score=$5, result=$6 WHERE id=$1`, [
+      a.id,
+      g.mc_correct,
+      g.mc_score,
+      g.total_score,
+      g.max_score,
+      g.result,
+    ]);
+  }
+  return r.rows.length;
 }
 
 /** Trạng thái tham gia dùng cho bảng theo dõi */
