@@ -1028,6 +1028,137 @@ app.get(
 );
 
 /* ------------------------------------------------------------------ */
+/* Admin: tổng quan & theo dõi trực tiếp                                */
+/* ------------------------------------------------------------------ */
+
+const FLAG_WARNINGS = 3; // từ số cảnh báo webcam này trở lên thì gắn cờ nghi vấn
+
+function flagsOf(a) {
+  const f = [];
+  if (a.tab_violation) f.push('Rời trang làm bài');
+  if (a.submit_reason === 'webcam') f.push('Tự nộp do webcam');
+  if ((a.webcam_warnings || 0) >= FLAG_WARNINGS) f.push(`${a.webcam_warnings} cảnh báo webcam`);
+  return f;
+}
+
+app.get(
+  '/api/admin/overview',
+  wrap(async (_req, res) => {
+    const s = await getSettings();
+    const [att, parts, bankR] = await Promise.all([
+      q(`SELECT started_at, submitted_at, submit_reason, deadline_at, result, total_score, max_score, tab_violation, webcam_warnings
+         FROM exam_attempts`),
+      q(`SELECT count(*)::int AS n FROM participants`),
+      q(`SELECT type, count(*)::int AS n FROM questions WHERE active GROUP BY type`),
+    ]);
+    const now = new Date();
+    const c = { not_started: 0, in_progress: 0, overdue: 0, submitted: 0, auto_submitted: 0 };
+    let pass = 0, fail = 0, pending = 0, flagged = 0, sum = 0, scored = 0;
+    for (const a of att.rows) {
+      c[participationStatus(a, now)]++;
+      if (!a.submitted_at) continue;
+      if (a.result === 'pass') pass++;
+      else if (a.result === 'fail') fail++;
+      else pending++;
+      if (flagsOf(a).length) flagged++;
+      const v = to10(a.total_score, a.max_score);
+      if (v != null && a.result !== 'pending') {
+        sum += v;
+        scored++;
+      }
+    }
+    const bank = { mc: 0, essay: 0 };
+    for (const r of bankR.rows) bank[r.type === 'essay' ? 'essay' : 'mc'] += r.n;
+    const participants = parts.rows[0].n;
+    c.not_started = Math.max(0, participants - att.rows.length);
+    const submitted = c.submitted + c.auto_submitted;
+    const status = examStatus(s);
+
+    const todo = [];
+    if (bank.mc < s.multipleChoiceCount)
+      todo.push({ tone: 'red', tab: 'questions', text: `Thiếu câu trắc nghiệm: có ${bank.mc}/${s.multipleChoiceCount} câu đang dùng.` });
+    if (bank.essay < s.essayCount)
+      todo.push({ tone: 'red', tab: 'questions', text: `Thiếu câu tự luận: có ${bank.essay}/${s.essayCount} câu đang dùng.` });
+    if (!participants) todo.push({ tone: 'red', tab: 'participants', text: 'Chưa có danh sách email được phép thi.' });
+    if (!s.openingAt || !s.closingAt) todo.push({ tone: 'amber', tab: 'settings', text: 'Chưa đặt đủ thời gian mở / đóng kỳ thi.' });
+    if (!s.active) todo.push({ tone: 'amber', tab: 'settings', text: 'Kỳ thi đang tắt ("Mở kỳ thi" chưa bật).' });
+    if (pending) todo.push({ tone: 'amber', tab: 'grading', text: `${pending} bài đang chờ chấm tự luận.` });
+    if (c.overdue) todo.push({ tone: 'amber', tab: 'archive', text: `${c.overdue} bài quá hạn chưa chốt.` });
+    if (flagged) todo.push({ tone: 'amber', tab: 'live', text: `${flagged} bài có dấu hiệu nghi vấn cần xem lại.` });
+    if (TEST_MODE) todo.push({ tone: 'amber', text: 'Máy chủ đang ở CHẾ ĐỘ THỬ – tắt TEST_MODE trước khi thi chính thức.' });
+
+    res.json({
+      title: s.title,
+      status,
+      openingAt: s.openingAt,
+      closingAt: s.closingAt,
+      serverNow: now.toISOString(),
+      durationMinutes: s.durationMinutes,
+      participants,
+      counts: { ...c, submitted, started: att.rows.length },
+      results: { pass, fail, pending, flagged, avgScore10: scored ? round2(sum / scored) : null },
+      passRate: pass + fail ? round2((pass / (pass + fail)) * 100) : null,
+      bank: { ...bank, needMc: s.multipleChoiceCount, needEssay: s.essayCount },
+      todo,
+      testMode: TEST_MODE,
+    });
+  })
+);
+
+app.get(
+  '/api/admin/live',
+  wrap(async (_req, res) => {
+    const [qmap, names, run, flagged] = await Promise.all([
+      questionMap(),
+      projectNames(),
+      q(`SELECT a.*, e.last_event_at, e.last_event
+         FROM exam_attempts a
+         LEFT JOIN LATERAL (
+           SELECT created_at AS last_event_at, type AS last_event FROM exam_events WHERE attempt_id = a.id ORDER BY id DESC LIMIT 1
+         ) e ON TRUE
+         WHERE a.submitted_at IS NULL ORDER BY a.started_at`),
+      q(`SELECT * FROM exam_attempts
+         WHERE submitted_at IS NOT NULL AND (tab_violation OR submit_reason = 'webcam' OR webcam_warnings >= $1)
+         ORDER BY submitted_at DESC LIMIT 50`, [FLAG_WARNINGS]),
+    ]);
+    const now = Date.now();
+    const live = run.rows.map((a) => ({
+      id: a.id,
+      seq: a.seq,
+      name: a.name,
+      email: a.email,
+      level: a.level,
+      projectName: names.get(a.project_id) || '',
+      startedAt: a.started_at,
+      deadlineAt: a.deadline_at,
+      remainingSec: Math.round((new Date(a.deadline_at).getTime() - now) / 1000),
+      answered: a.question_ids.filter((id) => isAnswered(qmap.get(id), a.answers[id])).length,
+      questionCount: a.question_ids.length,
+      webcamWarnings: a.webcam_warnings,
+      lastEventAt: a.last_event_at,
+      lastEvent: a.last_event,
+      flags: flagsOf(a),
+    }));
+    res.json({
+      serverNow: new Date(now).toISOString(),
+      live,
+      flagged: flagged.rows.map((a) => ({ ...attemptSummary(a, qmap, names.get(a.project_id)), flags: flagsOf(a) })),
+    });
+  })
+);
+
+app.post(
+  '/api/admin/force-submit',
+  wrap(async (req, res) => {
+    const id = String(req.body?.id || '');
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new HttpError(400, 'Mã bài làm không hợp lệ.');
+    const a = await submitAttempt(id, 'admin');
+    if (!a) throw new HttpError(404, 'Không tìm thấy bài làm.');
+    res.json({ ok: true });
+  })
+);
+
+/* ------------------------------------------------------------------ */
 /* Admin: hồ sơ kết quả                                                */
 /* ------------------------------------------------------------------ */
 

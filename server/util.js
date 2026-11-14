@@ -131,4 +131,5 @@ export const SUBMIT_REASON_LABEL = {
   tab_switch: 'Tự nộp do chuyển tab',
   webcam: 'Tự nộp do vi phạm webcam',
   finalized: 'Quản trị chốt bài hết hạn',
+  admin: 'Quản trị thu bài',
 };

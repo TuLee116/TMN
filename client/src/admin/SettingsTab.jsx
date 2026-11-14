@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { fmtNum, readFileAsDataUrl, STATUS_LABEL, STATUS_TONE } from '../lib/format.js';
-import { Badge, Button, Card, Check, Field, inputCls, Loading, Notice, Spinner, Table } from '../lib/ui.jsx';
+import { Badge, Button, Card, Check, Field, Icon, inputCls, Loading, Notice, Spinner, Table } from '../lib/ui.jsx';
 
 export default function SettingsTab() {
   const [data, setData] = useState(null);
@@ -17,6 +17,17 @@ export default function SettingsTab() {
   useEffect(() => {
     load().catch((e) => setMsg({ tone: 'error', text: e.message }));
   }, [load]);
+
+  const dirty = !!(form && data && JSON.stringify(form) !== JSON.stringify(data.settings));
+  useEffect(() => {
+    if (!dirty) return;
+    const h = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, [dirty]);
 
   if (!form) return msg ? <Notice tone="error">{msg.text}</Notice> : <Loading />;
 
@@ -45,16 +56,10 @@ export default function SettingsTab() {
   return (
     <div className="space-y-6">
       <form onSubmit={save}>
+        <SectionNav />
         <Card
-          title="Cấu hình kỳ thi"
-          actions={
-            <>
-              <Badge tone={STATUS_TONE[data.status]}>{STATUS_LABEL[data.status]}</Badge>
-              <Button type="submit" disabled={busy}>
-                {busy && <Spinner />}Lưu cấu hình
-              </Button>
-            </>
-          }
+          title={<Anchor id="lich-thi">Lịch thi</Anchor>}
+          actions={<Badge tone={STATUS_TONE[data.status]}>{STATUS_LABEL[data.status]}</Badge>}
         >
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <Field label="Tiêu đề bài kiểm tra" className="md:col-span-2 lg:col-span-3">
@@ -69,6 +74,14 @@ export default function SettingsTab() {
             <Field label="Thời lượng (phút)">
               <input type="number" min="1" className={inputCls} value={form.durationMinutes} onChange={num('durationMinutes')} />
             </Field>
+          </div>
+          <div className="mt-4">
+            <Check label="Mở kỳ thi" hint="Tắt là đóng kỳ thi ngay lập tức, kể cả khi đang trong khung giờ" checked={form.active} onChange={set('active')} />
+          </div>
+        </Card>
+
+        <Card title={<Anchor id="de-diem">Đề và điểm</Anchor>} className="mt-6">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <Field label="Số câu trắc nghiệm">
               <input type="number" min="0" className={inputCls} value={form.multipleChoiceCount} onChange={num('multipleChoiceCount')} />
             </Field>
@@ -94,14 +107,13 @@ export default function SettingsTab() {
           <p className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">
             Tối đa <b>{fmtNum(maxScore)}</b> điểm cho đề này. Điểm được quy về thang 10 để xét đạt.
           </p>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <Check label="Mở kỳ thi" hint="Tắt là đóng kỳ thi ngay lập tức" checked={form.active} onChange={set('active')} />
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Check label="Hiện tổng điểm cho thí sinh" hint="Hiện sau khi chấm xong tự luận" checked={form.showScore} onChange={set('showScore')} />
             <Check label="Xáo trộn thứ tự câu hỏi" checked={form.shuffleQuestions} onChange={set('shuffleQuestions')} />
           </div>
         </Card>
 
-        <Card title="Nội dung cuộc thi (hiển thị cho thí sinh)" className="mt-6">
+        <Card title={<Anchor id="noi-dung">Nội dung hiển thị cho thí sinh</Anchor>} className="mt-6">
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Tên đơn vị" hint="Dòng chữ nhỏ phía trên tiêu đề">
               <input className={inputCls} value={form.organization || ''} onChange={(e) => set('organization')(e.target.value)} />
@@ -123,11 +135,11 @@ export default function SettingsTab() {
             </Field>
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Bấm <b>Lưu cấu hình</b> rồi mở trang thí sinh để xem. Nội dung chỉnh được cả khi kỳ thi đang mở.
+            Bấm <b>Lưu cấu hình</b> rồi bấm <b>Xem trang thí sinh</b> để kiểm tra. Nội dung chỉnh được cả khi kỳ thi đang mở.
           </p>
         </Card>
 
-        <Card title="Giám sát webcam" className="mt-6">
+        <Card title={<Anchor id="giam-sat">Giám sát webcam</Anchor>} className="mt-6">
           <div className="grid gap-3 md:grid-cols-2">
             <Check
               label="Bật giám sát webcam"
@@ -158,17 +170,39 @@ export default function SettingsTab() {
             </Field>
           </div>
         </Card>
-        <Notice tone={msg?.tone} className="mt-4" onClose={() => setMsg(null)}>
-          {msg?.text}
-        </Notice>
-        <div className="mt-4 flex justify-end">
-          <Button type="submit" disabled={busy}>
-            {busy && <Spinner />}Lưu cấu hình
-          </Button>
+        <div className="sticky bottom-4 z-20 mt-6">
+          <div
+            className={`flex flex-wrap items-center gap-3 rounded-2xl px-5 py-3 shadow-xl ring-1 transition ${
+              dirty ? 'bg-amber-50 ring-amber-300' : 'bg-white/95 ring-slate-200 backdrop-blur'
+            }`}
+          >
+            <span className={`text-sm font-medium ${dirty ? 'text-amber-800' : 'text-slate-500'}`}>
+              {dirty ? '● Có thay đổi chưa lưu' : msg?.tone === 'success' ? '✓ ' + msg.text : 'Không có thay đổi'}
+            </span>
+            {msg?.tone === 'error' && <span className="text-sm font-medium text-red-700">{msg.text}</span>}
+            <div className="ml-auto flex flex-wrap gap-2">
+              <a
+                href="#/"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <Icon name="external" className="h-4 w-4" /> Xem trang thí sinh
+              </a>
+              {dirty && (
+                <Button variant="secondary" onClick={() => setForm(data.settings)} disabled={busy}>
+                  Hủy thay đổi
+                </Button>
+              )}
+              <Button type="submit" disabled={busy || !dirty}>
+                {busy && <Spinner />}Lưu cấu hình
+              </Button>
+            </div>
+          </div>
         </div>
       </form>
 
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+      <div id="cong-trinh" className="grid scroll-mt-6 gap-6 lg:grid-cols-[2fr_1fr]">
         <Projects />
         <LogoCard hasLogo={data.hasLogo} onChange={(hasLogo) => setData((d) => ({ ...d, hasLogo }))} />
       </div>
@@ -317,5 +351,38 @@ function LogoCard({ hasLogo, onChange }) {
         {err}
       </Notice>
     </Card>
+  );
+}
+
+const SECTIONS = [
+  ['lich-thi', 'Lịch thi'],
+  ['de-diem', 'Đề và điểm'],
+  ['noi-dung', 'Nội dung'],
+  ['giam-sat', 'Giám sát webcam'],
+  ['cong-trinh', 'Công trình & logo'],
+];
+
+function SectionNav() {
+  return (
+    <nav className="sticky top-0 z-20 -mx-1 mb-4 flex gap-2 overflow-x-auto bg-transparent px-1 py-2 lg:top-2">
+      {SECTIONS.map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          className="shrink-0 rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-blue-800 shadow-sm ring-1 ring-slate-200 hover:ring-blue-300"
+        >
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function Anchor({ id, children }) {
+  return (
+    <span id={id} className="scroll-mt-24">
+      {children}
+    </span>
   );
 }
