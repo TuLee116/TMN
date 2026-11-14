@@ -37,6 +37,7 @@ export const AUDIT_LABEL = {
   participants_import: 'Nhập danh sách email',
   participants_add: 'Thêm email',
   participants_delete: 'Xóa danh sách email',
+  participant_delete: 'Xóa một email',
   questions_import: 'Nhập câu hỏi',
   question_add: 'Thêm câu hỏi',
   question_edit: 'Sửa câu hỏi',

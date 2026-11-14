@@ -73,6 +73,7 @@ export const DEFAULT_SETTINGS = {
   displayMode: 'paged',
   active: false,
   shuffleQuestions: true,
+  shuffleOptions: false, // xáo thứ tự phương án A/B/C/D cho từng thí sinh
   // Rút đề trắc nghiệm theo tỷ lệ độ khó (%)
   mixEnabled: false,
   mixEasy: 40,
@@ -158,6 +159,7 @@ export async function initSchema() {
     ALTER TABLE questions ADD COLUMN IF NOT EXISTS topic TEXT;
     ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT;
     ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS result_emailed_at TIMESTAMPTZ;
+    ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS option_orders JSONB NOT NULL DEFAULT '{}';
 
     CREATE TABLE IF NOT EXISTS admin_users (
       id SERIAL PRIMARY KEY,

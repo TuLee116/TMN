@@ -41,6 +41,9 @@ import {
   participationStatus,
   PARTICIPATION_LABEL,
   RESULT_LABEL,
+  canShuffleOptions,
+  optionOrder,
+  toDisplayLetters,
 } from './attempts.js';
 import {
   parseQuestionsXlsx,
@@ -139,6 +142,28 @@ async function requireAttempt(req) {
 }
 
 /** Trạng thái lượt thi gửi cho thí sinh (không lộ đáp án) */
+/** Đáp án theo thứ tự phương án thí sinh thấy */
+function displayAnswers(a, qmap) {
+  const out = {};
+  for (const [k, v] of Object.entries(a.answers || {})) {
+    const qu = qmap.get(Number(k));
+    out[k] = qu && qu.type !== 'essay' ? toDisplayLetters(a, Number(k), v) : v;
+  }
+  return out;
+}
+
+/** Bản câu hỏi + bài làm theo thứ tự thí sinh thấy (dùng cho PDF đối chiếu của thí sinh) */
+function displayView(a, qmap) {
+  if (!a.option_orders || !Object.keys(a.option_orders).length) return { attempt: a, qmap };
+  const m = new Map(qmap);
+  for (const id of a.question_ids) {
+    const qu = qmap.get(id);
+    const o = optionOrder(a, id);
+    if (qu && o) m.set(id, { ...qu, options: o.map((i) => qu.options[i]), correct: toDisplayLetters(a, id, qu.correct) });
+  }
+  return { attempt: { ...a, answers: displayAnswers(a, qmap) }, qmap: m };
+}
+
 async function candidateView(a, qmap) {
   const s = a.settings_snapshot;
   const current = await getSettings();
@@ -163,8 +188,11 @@ async function candidateView(a, qmap) {
     const questions = a.question_ids
       .map((id) => qmap.get(id))
       .filter(Boolean)
-      .map((x) => ({ id: x.id, type: x.type, text: x.text, options: x.options }));
-    return { ...base, status: 'in_progress', questions, answers: a.answers };
+      .map((x) => {
+        const o = optionOrder(a, x.id);
+        return { id: x.id, type: x.type, text: x.text, options: o ? o.map((i) => x.options[i]) : x.options };
+      });
+    return { ...base, status: 'in_progress', questions, answers: displayAnswers(a, qmap) };
   }
   const answered = a.question_ids.filter((id) => isAnswered(qmap.get(id), a.answers[id])).length;
   const out = { ...base, status: 'submitted', answeredCount: answered, questionCount: a.question_ids.length };
@@ -326,14 +354,23 @@ app.post(
     }
     const order = (rows) => (s.shuffleQuestions ? shuffle(rows) : [...rows].sort((a, b) => a.position - b.position || a.id - b.id));
     const questionIds = [...order(mc), ...order(es)].map((r) => r.id);
+    // Xáo phương án từng câu (lưu thứ tự riêng cho bài này)
+    const optionOrders = {};
+    if (s.shuffleOptions && mc.length) {
+      const qmap = await questionMap();
+      for (const r of mc) {
+        const qu = qmap.get(r.id);
+        if (canShuffleOptions(qu)) optionOrders[r.id] = shuffle(qu.options.map((_, i) => i));
+      }
+    }
 
     const token = crypto.randomBytes(24).toString('base64url');
     const deadline = new Date(Date.now() + Number(s.durationMinutes) * 60_000);
     try {
       await q(
-        `INSERT INTO exam_attempts(token, email, seq, name, job_title, level, project_id, question_ids, deadline_at, settings_snapshot)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [token, email, participant.seq, name, jobTitle, level, projectId, JSON.stringify(questionIds), deadline, s]
+        `INSERT INTO exam_attempts(token, email, seq, name, job_title, level, project_id, question_ids, deadline_at, settings_snapshot, option_orders)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [token, email, participant.seq, name, jobTitle, level, projectId, JSON.stringify(questionIds), deadline, s, JSON.stringify(optionOrders)]
       );
     } catch (e) {
       if (e.code === '23505') throw new HttpError(409, 'Email này đã có lượt kiểm tra. Mỗi email chỉ được làm một lần.');
@@ -409,9 +446,10 @@ app.get(
       getLogo(),
       a.project_id ? q(`SELECT name FROM projects WHERE id=$1`, [a.project_id]) : null,
     ]);
+    const view = displayView(a, qmap);
     const pdf = await renderAttemptPdf({
-      attempt: a,
-      qmap,
+      attempt: view.attempt,
+      qmap: view.qmap,
       mode: 'review',
       projectName: project?.rows[0]?.name,
       logo,
@@ -604,7 +642,7 @@ function cleanSettings(input, prev) {
   num('mixMedium', 0, 100, true);
   num('mixHard', 0, 100, true);
   if (input.displayMode !== undefined) s.displayMode = input.displayMode === 'all' ? 'all' : 'paged';
-  for (const k of ['active', 'showScore', 'shuffleQuestions', 'webcamEnabled', 'webcamRequired', 'mixEnabled']) bool(k);
+  for (const k of ['active', 'showScore', 'shuffleQuestions', 'shuffleOptions', 'webcamEnabled', 'webcamRequired', 'mixEnabled']) bool(k);
   if (s.mixEnabled && s.mixEasy + s.mixMedium + s.mixHard !== 100) throw new HttpError(400, 'Tổng tỷ lệ Dễ + Trung bình + Khó phải bằng 100%.');
   if (s.multipleChoiceCount + s.essayCount < 1) throw new HttpError(400, 'Đề phải có ít nhất 1 câu.');
   if (maxScoreOf(s) <= 0) throw new HttpError(400, 'Tổng điểm tối đa phải lớn hơn 0.');
@@ -780,6 +818,19 @@ app.post(
     }
     await audit(req, 'participants_add', { added });
     res.json({ ok: true, added, duplicates, invalid });
+  })
+);
+
+app.delete(
+  '/api/admin/participants/one',
+  wrap(async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    const has = (await q(`SELECT 1 FROM exam_attempts WHERE email=$1`, [email])).rowCount;
+    if (has) throw new HttpError(409, 'Email này đã có bài làm, không xóa khỏi danh sách được (để giữ hồ sơ).');
+    const r = await q(`DELETE FROM participants WHERE email=$1`, [email]);
+    if (!r.rowCount) throw new HttpError(404, 'Không tìm thấy email trong danh sách.');
+    await audit(req, 'participant_delete', { email });
+    res.json({ ok: true });
   })
 );
 

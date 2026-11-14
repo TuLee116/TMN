@@ -63,7 +63,39 @@ export function grade(attempt, qmap) {
   };
 }
 
-/** Làm sạch đáp án gửi lên: chỉ giữ câu thuộc đề, đúng kiểu */
+const LETTERS = 'ABCDEF';
+
+/** Câu có phương án dạng "Tất cả các đáp án trên", "Cả A và B"… thì không xáo để giữ đúng nghĩa */
+const FIXED_OPTION_RE = /(tất cả|tat ca|cả hai|ca hai|các đáp án|cac dap an|các phương án|cac phuong an|đáp án trên|phương án trên|không có đáp án|khong co dap an|^\s*cả\s+[a-f]\b|^\s*ca\s+[a-f]\b|all of the above|none of the above|both)/i;
+
+export function canShuffleOptions(qu) {
+  return qu && qu.type !== 'essay' && qu.options.length > 2 && !qu.options.some((o) => FIXED_OPTION_RE.test(String(o)));
+}
+
+/** Thứ tự hiển thị: order[i] = chỉ số phương án gốc ở vị trí i */
+export function optionOrder(attempt, qid) {
+  const o = attempt.option_orders?.[qid];
+  return Array.isArray(o) ? o : null;
+}
+
+/** Chữ cái thí sinh thấy → chữ cái gốc */
+export function toOriginalLetters(attempt, qid, letters) {
+  const o = optionOrder(attempt, qid);
+  if (!o) return letters;
+  return letters.map((L) => LETTERS[o[LETTERS.indexOf(L)]]).filter(Boolean);
+}
+
+/** Chữ cái gốc → chữ cái thí sinh thấy */
+export function toDisplayLetters(attempt, qid, letters) {
+  const o = optionOrder(attempt, qid);
+  if (!o) return letters;
+  return answerList(letters)
+    .map((L) => LETTERS[o.indexOf(LETTERS.indexOf(L))])
+    .filter(Boolean)
+    .sort();
+}
+
+/** Làm sạch đáp án gửi lên: chỉ giữ câu thuộc đề, đúng kiểu (chữ cái theo thứ tự thí sinh thấy → quy về gốc) */
 export function sanitizeAnswers(input, attempt, qmap) {
   const out = {};
   if (!input || typeof input !== 'object') return out;
@@ -78,7 +110,7 @@ export function sanitizeAnswers(input, attempt, qmap) {
       const letters = 'ABCDEF'.slice(0, qu.options.length);
       let list = [...new Set(answerList(v).map((x) => x.toUpperCase()).filter((x) => x.length === 1 && letters.includes(x)))];
       if (qu.type === 'single') list = list.slice(0, 1);
-      out[id] = list.sort();
+      out[id] = toOriginalLetters(attempt, id, list).sort();
     }
   }
   return out;

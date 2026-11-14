@@ -181,6 +181,17 @@ function Bank({ bank, reload, setMsg }) {
   const active = all.filter((x) => x.active);
   const count = (fn) => active.filter(fn).length;
 
+  async function remove(q) {
+    if (!confirm(`Xóa vĩnh viễn câu hỏi: "${q.text.slice(0, 80)}"?`)) return;
+    try {
+      await api(`/admin/questions/${q.id}`, { method: 'DELETE' });
+      setMsg({ tone: 'success', text: 'Đã xóa câu hỏi.' });
+      await reload();
+    } catch (e) {
+      setMsg({ tone: 'error', text: e.message });
+    }
+  }
+
   async function toggle(q) {
     try {
       await api(`/admin/questions/${q.id}`, { method: 'PATCH', body: { active: !q.active } });
@@ -239,7 +250,7 @@ function Bank({ bank, reload, setMsg }) {
         Hiện {rows.length}/{all.length} câu. Cột <b>Tỷ lệ đúng</b> tính từ các bài đã nộp: dưới 30% có thể quá khó hoặc sai đáp án, trên 90% có thể quá dễ.
       </p>
 
-      <QuestionTable rows={rows} showActive locked={bank.locked} onToggle={toggle} onEdit={setEdit} />
+      <QuestionTable rows={rows} showActive locked={bank.locked} onToggle={toggle} onEdit={setEdit} onDelete={remove} />
 
       <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? `Sửa câu hỏi #${edit.id}` : 'Thêm câu hỏi'} wide>
         {edit && (
@@ -439,7 +450,7 @@ function QuestionEditor({ initial, locked, topics, onDone }) {
   );
 }
 
-function QuestionTable({ rows, rowLabel, showActive, locked, onToggle, onEdit }) {
+function QuestionTable({ rows, rowLabel, showActive, locked, onToggle, onEdit, onDelete }) {
   const columns = [
     { key: 'no', label: rowLabel || '#', className: 'tabular-nums text-slate-400', render: (r, i) => (rowLabel ? r.row : i + 1) },
     { key: 'type', label: 'Loại', className: 'whitespace-nowrap', render: (r) => <Badge tone={r.type === 'essay' ? 'amber' : 'blue'}>{TYPE_LABEL[r.type]}</Badge> },
@@ -485,6 +496,11 @@ function QuestionTable({ rows, rowLabel, showActive, locked, onToggle, onEdit })
           <Button size="sm" variant="secondary" onClick={() => onEdit(r)}>
             Sửa
           </Button>
+          {!locked && (
+            <Button size="sm" variant="ghost" className="!text-red-600 hover:!bg-red-50" onClick={() => onDelete(r)}>
+              Xóa
+            </Button>
+          )}
           <Button size="sm" variant={r.active ? 'ghost' : 'ghost'} className={r.active ? '!text-emerald-700' : '!text-slate-400'} onClick={() => onToggle(r)} title="Bấm để ẩn / dùng lại">
             {r.active ? '● Đang dùng' : '○ Đã ẩn'}
           </Button>
