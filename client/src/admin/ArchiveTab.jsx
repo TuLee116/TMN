@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, download } from '../lib/api.js';
 import { STATUS_LABEL, STATUS_TONE } from '../lib/format.js';
-import { Badge, Button, Card, Loading, Modal, Notice, Spinner } from '../lib/ui.jsx';
+import { Badge, Button, Card, inputCls, Loading, Modal, Notice, Spinner } from '../lib/ui.jsx';
 
 export default function ArchiveTab() {
   const [info, setInfo] = useState(null);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [delOpen, setDelOpen] = useState(false);
+  const [delText, setDelText] = useState('');
 
   const load = useCallback(async () => {
     const [s, p] = await Promise.all([api('/admin/settings'), api('/admin/participation')]);
@@ -67,6 +69,30 @@ export default function ArchiveTab() {
     }
   }
 
+  async function clearOnly() {
+    setDelOpen(false);
+    setDelText('');
+    setBusy('delete');
+    setMsg(null);
+    try {
+      const r = await api('/admin/clear-results', { method: 'POST', body: { confirm: true } });
+      setMsg({ tone: 'success', text: `Đã xóa ${r.deleted} bài làm (không tải ZIP). Câu hỏi, cấu hình và danh sách email được giữ nguyên.` });
+      await load();
+    } catch (e) {
+      setMsg({ tone: 'error', text: e.message });
+    } finally {
+      setBusy('');
+    }
+  }
+
+  const clearBlocked = !!busy || !closed || unsubmitted > 0 || totalAttempts === 0;
+  const clearHint = (
+    <>
+      {!closed && <p className="mb-3 text-xs text-amber-700">Kỳ thi chưa đóng.</p>}
+      {closed && unsubmitted > 0 && <p className="mb-3 text-xs text-amber-700">Còn {unsubmitted} bài chưa nộp – hãy chốt bài trước.</p>}
+    </>
+  );
+
   return (
     <div className="space-y-6">
       <Card title="Hồ sơ kết quả" actions={<Badge tone={STATUS_TONE[info.status]}>{STATUS_LABEL[info.status]}</Badge>}>
@@ -81,7 +107,7 @@ export default function ArchiveTab() {
         </Notice>
       </Card>
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         <Card title="Tải ZIP">
           <p className="mb-4 text-sm text-slate-600">
             Gồm tệp Excel tổng hợp (sheet “Hồ sơ phúc khảo” có liên kết tới PDF) và PDF từng bài, đặt tên theo STT + họ tên.
@@ -100,10 +126,18 @@ export default function ArchiveTab() {
           <p className="mb-4 text-sm text-slate-600">
             Chỉ dùng khi kỳ thi đã đóng và không còn bài đang làm. Giữ lại câu hỏi, cấu hình và danh sách email.
           </p>
-          {!closed && <p className="mb-3 text-xs text-amber-700">Kỳ thi chưa đóng.</p>}
-          {closed && unsubmitted > 0 && <p className="mb-3 text-xs text-amber-700">Còn {unsubmitted} bài chưa nộp – hãy chốt bài trước.</p>}
-          <Button variant="danger" onClick={() => setConfirmOpen(true)} disabled={!!busy || !closed || unsubmitted > 0 || totalAttempts === 0}>
+          {clearHint}
+          <Button variant="danger" onClick={() => setConfirmOpen(true)} disabled={clearBlocked}>
             {busy === 'clear' && <Spinner />}Tải ZIP và xóa dữ liệu
+          </Button>
+        </Card>
+        <Card title="Xóa dữ liệu (không tải ZIP)">
+          <p className="mb-4 text-sm text-slate-600">
+            Xóa ngay toàn bộ bài làm mà <b>không tải hồ sơ</b> – dùng để dọn bài làm thử. Giữ lại câu hỏi, cấu hình và danh sách email.
+          </p>
+          {clearHint}
+          <Button variant="danger" onClick={() => setDelOpen(true)} disabled={clearBlocked}>
+            {busy === 'delete' && <Spinner />}Xóa dữ liệu
           </Button>
         </Card>
       </div>
@@ -127,6 +161,39 @@ export default function ArchiveTab() {
           Hệ thống sẽ tải tệp ZIP về máy, sau đó <b>xóa vĩnh viễn {totalAttempts} bài làm</b> cùng ảnh giám sát. Thao tác không thể hoàn tác.
           Hãy kiểm tra tệp ZIP đã tải đầy đủ.
         </p>
+      </Modal>
+
+      <Modal
+        open={delOpen}
+        onClose={() => {
+          setDelOpen(false);
+          setDelText('');
+        }}
+        title="Xóa toàn bộ bài làm – không tải ZIP?"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setDelOpen(false);
+                setDelText('');
+              }}
+            >
+              Hủy
+            </Button>
+            <Button variant="danger" onClick={clearOnly} disabled={delText.trim().toUpperCase() !== 'XOA'}>
+              Xóa vĩnh viễn
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-700">
+          Hệ thống sẽ <b>xóa vĩnh viễn {totalAttempts} bài làm</b> cùng ảnh giám sát và <b>không lưu hồ sơ</b>. Thao tác không thể hoàn tác.
+        </p>
+        <label className="mt-4 block text-sm text-slate-700">
+          Gõ <b>XOA</b> để xác nhận:
+          <input className={`${inputCls} mt-1`} value={delText} onChange={(e) => setDelText(e.target.value)} autoFocus />
+        </label>
       </Modal>
     </div>
   );
