@@ -1,13 +1,50 @@
 @import "tailwindcss";
 
+/* Bộ nhận diện Tân Minh Nhân: navy (logo) → teal, font Montserrat.
+   Thang "blue" được thay bằng navy thương hiệu để mọi nút/viền/nhấn dùng chung một màu. */
 @theme {
-  --font-sans: "Be Vietnam Pro", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Montserrat", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --color-blue-50: #eef3fa;
+  --color-blue-100: #dbe5f3;
+  --color-blue-200: #b8cbe6;
+  --color-blue-300: #8eaad3;
+  --color-blue-400: #5f84bb;
+  --color-blue-500: #3f66a2;
+  --color-blue-600: #2f5190;
+  --color-blue-700: #2a4074;
+  --color-blue-800: #213460;
+  --color-blue-900: #1a284a;
+
+  --color-brand-navy: #1f3366;
+  --color-brand-teal: #0f9d94;
+  --color-brand-red: #e8323a;
+}
+
+/* Gradient chủ đạo navy → teal */
+@utility bg-brand {
+  background-image: linear-gradient(120deg, #1f3366 0%, #1d5a85 55%, #0f9d94 100%);
+}
+@utility bg-brand-soft {
+  background-image: linear-gradient(160deg, #eef3fa 0%, #f3f8f9 45%, #e6f5f3 100%);
+}
+@utility text-brand {
+  background-image: linear-gradient(100deg, #1f3366 0%, #0f9d94 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 html,
 body {
-  background: #f1f5f9;
   color: #0f172a;
+  font-family: var(--font-sans);
+}
+body {
+  min-height: 100vh;
+  background: #f1f5f9;
+  background-image: linear-gradient(160deg, #eef3fa 0%, #f3f8f9 45%, #e6f5f3 100%);
+  background-attachment: fixed;
 }
 
 /* Chặn chọn/sao chép nội dung đề khi làm bài */

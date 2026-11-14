@@ -75,6 +75,8 @@ export default function CandidateApp() {
       <ResultView
         attempt={attempt}
         testMode={info.testMode}
+        finishMessage={info.settings?.finishMessage}
+        organization={info.settings?.organization}
         onRefresh={refreshState}
         onReset={async () => {
           await api('/exam/reset', { method: 'POST' });

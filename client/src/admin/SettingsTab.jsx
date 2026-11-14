@@ -101,6 +101,32 @@ export default function SettingsTab() {
           </div>
         </Card>
 
+        <Card title="Nội dung cuộc thi (hiển thị cho thí sinh)" className="mt-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Tên đơn vị" hint="Dòng chữ nhỏ phía trên tiêu đề">
+              <input className={inputCls} value={form.organization || ''} onChange={(e) => set('organization')(e.target.value)} />
+            </Field>
+            <Field label="Mô tả ngắn" hint="Hiện ngay dưới tiêu đề, ví dụ: Kỳ kiểm tra năng lực QS – Quý IV/2026">
+              <input className={inputCls} value={form.subtitle || ''} onChange={(e) => set('subtitle')(e.target.value)} />
+            </Field>
+            <Field label="Giới thiệu / hướng dẫn" hint="Để trống sẽ ẩn mục này. Dòng trống để tách đoạn. Viết **chữ** để in đậm.">
+              <textarea rows={6} className={inputCls} value={form.intro || ''} onChange={(e) => set('intro')(e.target.value)} />
+            </Field>
+            <Field
+              label="Nội quy kiểm tra"
+              hint="Mỗi dòng là một ý. Viết **chữ** để in đậm. Dòng về giám sát camera được tự thêm khi bật webcam."
+            >
+              <textarea rows={6} className={inputCls} value={form.rules || ''} onChange={(e) => set('rules')(e.target.value)} />
+            </Field>
+            <Field label="Lời nhắn sau khi nộp bài" hint="Hiện ở trang kết quả. Để trống sẽ ẩn." className="md:col-span-2">
+              <textarea rows={3} className={inputCls} value={form.finishMessage || ''} onChange={(e) => set('finishMessage')(e.target.value)} />
+            </Field>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">
+            Bấm <b>Lưu cấu hình</b> rồi mở trang thí sinh để xem. Nội dung chỉnh được cả khi kỳ thi đang mở.
+          </p>
+        </Card>
+
         <Card title="Giám sát webcam" className="mt-6">
           <div className="grid gap-3 md:grid-cols-2">
             <Check
@@ -268,9 +294,9 @@ function LogoCard({ hasLogo, onChange }) {
           onError={(e) => (e.currentTarget.style.display = 'none')}
         />
       </div>
-      <p className="mt-2 text-xs text-slate-500">PNG/JPEG/WEBP/SVG, tối đa 500KB. Hiển thị trên trang thí sinh và trong PDF (PNG/JPEG).</p>
+      <p className="mt-2 text-xs text-slate-500">PNG/JPEG/WEBP/SVG, tối đa 500KB. Hiển thị trên trang thí sinh và trong PDF (PNG/JPEG). Chưa tải lên thì dùng logo Tân Minh Nhân mặc định.</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800">
+        <label className="inline-flex cursor-pointer items-center gap-2 bg-brand rounded-lg px-4 py-2 text-sm font-medium text-white hover:brightness-110">
           {busy && <Spinner />}Tải logo lên
           <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(e) => upload(e.target.files[0])} />
         </label>
@@ -283,7 +309,7 @@ function LogoCard({ hasLogo, onChange }) {
               setVer((v) => v + 1);
             }}
           >
-            Gỡ logo
+            Về logo mặc định
           </Button>
         )}
       </div>

@@ -86,6 +86,11 @@ app.use('/api', express.json({ limit: '2mb' }));
 function publicSettings(s) {
   return {
     title: s.title,
+    organization: s.organization,
+    subtitle: s.subtitle,
+    intro: s.intro,
+    rules: s.rules,
+    finishMessage: s.finishMessage,
     openingAt: s.openingAt,
     closingAt: s.closingAt,
     durationMinutes: s.durationMinutes,
@@ -487,6 +492,14 @@ function cleanSettings(input, prev) {
     if (input[k] !== undefined) s[k] = !!input[k];
   };
   if (input.title !== undefined) s.title = String(input.title).trim().slice(0, 200) || DEFAULT_SETTINGS.title;
+  const text = (k, max) => {
+    if (input[k] !== undefined) s[k] = String(input[k] ?? '').replace(/\r\n?/g, '\n').trim().slice(0, max);
+  };
+  text('organization', 200);
+  text('subtitle', 300);
+  text('intro', 5000);
+  text('rules', 5000);
+  text('finishMessage', 2000);
   for (const k of ['openingAt', 'closingAt']) {
     if (input[k] === undefined) continue;
     const v = String(input[k] || '').trim();

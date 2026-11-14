@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { fmtNum, fmtVnLocal, STATUS_LABEL, STATUS_TONE } from '../lib/format.js';
-import { Badge, Button, Check, Field, inputCls, Logo, Notice, Spinner } from '../lib/ui.jsx';
+import { Badge, Bold, Button, Check, Field, inputCls, LogoChip, Notice, Paragraphs, ruleLines, Spinner } from '../lib/ui.jsx';
 
 const FORM_KEY = 'tmn-start-form';
 
@@ -85,6 +85,12 @@ export default function Landing({ info, onStarted, onReloadInfo }) {
     }
   }
 
+  const rules = ruleLines(s.rules);
+  if (s.webcamEnabled)
+    rules.push(
+      `Kỳ thi có **giám sát bằng camera**${s.webcamRequired ? ' (bắt buộc)' : ''}: giữ khuôn mặt trong khung hình, nhìn vào màn hình, không có người khác ngồi cùng. Hình ảnh được xử lý trên máy của bạn; chỉ ảnh nhỏ tại thời điểm cảnh báo được gửi về hệ thống.`
+    );
+
   return (
     <div className="min-h-screen pb-12">
       {info.testMode && (
@@ -92,14 +98,22 @@ export default function Landing({ info, onStarted, onReloadInfo }) {
           CHẾ ĐỘ THỬ – chuyển tab không tự nộp bài, được thoát toàn màn hình. Không dùng cho kỳ thi chính thức.
         </div>
       )}
-      <div className="mx-auto max-w-3xl px-4 pt-8">
-        <header className="flex flex-col items-center gap-3 text-center">
-          <Logo className="h-16" />
-          <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">{s.title}</h1>
-          <Badge tone={STATUS_TONE[info.status]}>{STATUS_LABEL[info.status]}</Badge>
-        </header>
+      <header className="bg-brand relative overflow-hidden px-4 pb-24 pt-10 text-white">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rotate-45 border-[28px] border-white/10" />
+        <div className="pointer-events-none absolute -bottom-32 -left-20 h-72 w-72 rotate-45 border-[20px] border-white/5" />
+        <div className="relative mx-auto flex max-w-3xl flex-col items-center gap-3 text-center">
+          <LogoChip className="h-16 sm:h-20" />
+          {s.organization && <div className="mt-2 text-xs font-semibold uppercase tracking-[0.25em] text-white/80">{s.organization}</div>}
+          <h1 className="text-2xl font-extrabold leading-tight sm:text-4xl">{s.title}</h1>
+          {s.subtitle && <p className="max-w-2xl text-sm text-white/85 sm:text-base">{s.subtitle}</p>}
+          <Badge tone={STATUS_TONE[info.status]} className="mt-1">
+            {STATUS_LABEL[info.status]}
+          </Badge>
+        </div>
+      </header>
 
-        <section className="mt-6 grid gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:grid-cols-2">
+      <div className="relative mx-auto -mt-16 max-w-3xl px-4">
+        <section className="grid gap-3 rounded-2xl bg-white p-5 shadow-lg ring-1 ring-slate-200/60 sm:grid-cols-2">
           <InfoRow label="Thời gian mở" value={s.openingAt ? fmtVnLocal(s.openingAt) : 'Chưa đặt'} />
           <InfoRow label="Thời gian đóng" value={s.closingAt ? fmtVnLocal(s.closingAt) : 'Chưa đặt'} />
           <InfoRow label="Số câu" value={`${s.multipleChoiceCount + s.essayCount} câu`} />
@@ -113,28 +127,28 @@ export default function Landing({ info, onStarted, onReloadInfo }) {
           <p className="text-xs text-slate-500 sm:col-span-2">Thời gian theo giờ Việt Nam (GMT+7).</p>
         </section>
 
-        <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950">
-          <h2 className="mb-2 font-semibold">Nội quy kiểm tra</h2>
-          <ul className="list-disc space-y-1 pl-5">
-            <li>Bài kiểm tra tự bật chế độ toàn màn hình khi bắt đầu và phải giữ toàn màn hình trong suốt thời gian làm bài.</li>
-            <li>
-              <b>Không chuyển tab, chuyển cửa sổ hay thu nhỏ trình duyệt.</b> Nếu trang bị ẩn, hệ thống sẽ <b>tự động nộp bài</b> và
-              bài bị tính <b>không đạt</b>.
-            </li>
-            <li>Mỗi email chỉ được làm một lần. Nếu lỡ tải lại trang, bạn tiếp tục lượt đang làm trên cùng trình duyệt.</li>
-            <li>Hết giờ hệ thống tự nộp bài. Đáp án được lưu tự động trong khi làm.</li>
-            {s.webcamEnabled && (
-              <li>
-                Kỳ thi có <b>giám sát bằng camera</b>{s.webcamRequired ? ' (bắt buộc)' : ''}: giữ khuôn mặt trong khung hình, nhìn vào màn
-                hình, không có người khác ngồi cùng. Hình ảnh được xử lý trên máy của bạn; chỉ ảnh nhỏ tại thời điểm cảnh báo được gửi
-                về hệ thống.
-              </li>
-            )}
-          </ul>
-        </section>
+        {s.intro && (
+          <section className="mt-4 rounded-2xl bg-white p-5 text-sm leading-relaxed text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+            <h2 className="text-brand mb-2 w-fit text-base font-bold">Giới thiệu</h2>
+            <Paragraphs text={s.intro} />
+          </section>
+        )}
 
-        <form onSubmit={start} className="mt-4 space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold">Thông tin người kiểm tra</h2>
+        {rules.length > 0 && (
+          <section className="mt-4 rounded-2xl border-l-4 border-amber-400 bg-amber-50 p-5 text-sm text-amber-950 shadow-sm">
+            <h2 className="mb-2 font-bold">Nội quy kiểm tra</h2>
+            <ul className="list-disc space-y-1 pl-5">
+              {rules.map((r, i) => (
+                <li key={i}>
+                  <Bold text={r} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <form onSubmit={start} className="mt-4 space-y-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
+          <h2 className="text-brand w-fit text-base font-bold">Thông tin người kiểm tra</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Họ và tên">
               <input className={inputCls} value={form.name} onChange={(e) => set('name')(e.target.value)} autoComplete="name" />

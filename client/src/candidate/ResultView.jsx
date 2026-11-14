@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { fmtDateTime, fmtNum } from '../lib/format.js';
-import { Button, Logo, Spinner } from '../lib/ui.jsx';
+import { Button, Logo, Paragraphs, Spinner } from '../lib/ui.jsx';
 
-export default function ResultView({ attempt, testMode, onRefresh, onReset }) {
+export default function ResultView({ attempt, testMode, finishMessage, organization, onRefresh, onReset }) {
   const r = attempt.result || {};
   const pending = !r.hidden && r.pending;
   const [busy, setBusy] = useState(false);
@@ -34,11 +34,14 @@ export default function ResultView({ attempt, testMode, onRefresh, onReset }) {
 
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
-      <div className="space-y-5 rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+      <div className="overflow-hidden rounded-2xl bg-white text-center shadow-lg ring-1 ring-slate-200/60">
+        <div className="bg-brand h-2" />
+        <div className="space-y-5 p-6">
         <div className="flex justify-center">
-          <Logo className="h-12" />
+          <Logo className="h-16" />
         </div>
-        <h1 className="text-lg font-semibold text-slate-900">{attempt.title}</h1>
+        {organization && <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{organization}</div>}
+        <h1 className="text-lg font-bold text-slate-900">{attempt.title}</h1>
         {banner}
         {r.tabViolation && <p className="text-sm font-medium text-red-700">Bài bị tự nộp do rời khỏi trang làm bài (chuyển tab).</p>}
 
@@ -66,6 +69,8 @@ export default function ResultView({ attempt, testMode, onRefresh, onReset }) {
           {r.hidden && <div>Kết quả sẽ được thông báo sau.</div>}
         </div>
 
+        {finishMessage && <Paragraphs text={finishMessage} className="rounded-lg bg-blue-50 px-4 py-3 text-left text-sm text-blue-900" />}
+
         {testMode && (
           <Button
             variant="secondary"
@@ -78,6 +83,7 @@ export default function ResultView({ attempt, testMode, onRefresh, onReset }) {
             Làm lại (chế độ thử)
           </Button>
         )}
+        </div>
       </div>
     </div>
   );

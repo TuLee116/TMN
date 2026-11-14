@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, download } from '../lib/api.js';
 import { fmtClock, isAnswered, KIND_LABEL, LETTERS } from '../lib/format.js';
-import { Button, Modal, Notice, Spinner } from '../lib/ui.jsx';
+import { Button, Logo, Modal, Notice, Spinner } from '../lib/ui.jsx';
 import WebcamMonitor from './WebcamMonitor.jsx';
 
 const SAVE_LABEL = {
@@ -297,7 +297,9 @@ export default function ExamView({ attempt, testMode, stream, setStream, onSubmi
         </div>
       )}
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+        <div className="bg-brand h-1.5" />
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
+          <Logo className="hidden h-10 sm:block" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-slate-900">{attempt.title}</div>
             <div className="truncate text-xs text-slate-500">

@@ -38,6 +38,17 @@ export async function tx(fn) {
 
 export const DEFAULT_SETTINGS = {
   title: 'Bài kiểm tra nội bộ',
+  // Nội dung hiển thị cho thí sinh (admin chỉnh được)
+  organization: 'Tân Minh Nhân Corporation',
+  subtitle: '',
+  intro: '',
+  rules: [
+    'Bài kiểm tra tự bật chế độ toàn màn hình khi bắt đầu và phải giữ toàn màn hình trong suốt thời gian làm bài.',
+    '**Không chuyển tab, chuyển cửa sổ hay thu nhỏ trình duyệt.** Nếu trang bị ẩn, hệ thống sẽ **tự động nộp bài** và bài bị tính **không đạt**.',
+    'Mỗi email chỉ được làm một lần. Nếu lỡ tải lại trang, bạn tiếp tục lượt đang làm trên cùng trình duyệt.',
+    'Hết giờ hệ thống tự nộp bài. Đáp án được lưu tự động trong khi làm.',
+  ].join('\n'),
+  finishMessage: '',
   openingAt: '',
   closingAt: '',
   durationMinutes: 30,
