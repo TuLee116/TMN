@@ -49,6 +49,18 @@ export const DEFAULT_SETTINGS = {
     'Hết giờ hệ thống tự nộp bài. Đáp án được lưu tự động trong khi làm.',
   ].join('\n'),
   finishMessage: '',
+  // Email kết quả
+  emailSubject: 'Kết quả {ky_thi}',
+  emailBody: [
+    'Chào {ho_ten},',
+    '',
+    'Cảm ơn anh/chị đã tham gia {ky_thi}.',
+    'Kết quả: {ket_qua} – {thang_10}/10 điểm (tổng {tong_diem}/{diem_toi_da}).',
+    'Thời gian nộp bài: {ngay_nop}.',
+    '',
+    'Trân trọng,',
+    '{don_vi}',
+  ].join('\n'),
   openingAt: '',
   closingAt: '',
   durationMinutes: 30,
@@ -145,6 +157,58 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS exam_events_attempt_idx ON exam_events(attempt_id);
     ALTER TABLE questions ADD COLUMN IF NOT EXISTS topic TEXT;
     ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT;
+    ALTER TABLE exam_attempts ADD COLUMN IF NOT EXISTS result_emailed_at TIMESTAMPTZ;
+
+    CREATE TABLE IF NOT EXISTS admin_users (
+      id SERIAL PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('admin','grader')),
+      password_hash TEXT NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_login_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id BIGSERIAL PRIMARY KEY,
+      at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      actor TEXT,
+      role TEXT,
+      action TEXT NOT NULL,
+      detail JSONB,
+      ip TEXT
+    );
+    CREATE INDEX IF NOT EXISTS audit_log_at_idx ON audit_log(at DESC);
+
+    -- Đợt thi đã kết thúc: lưu nguyên bài làm, câu hỏi, cấu hình tại thời điểm lưu trữ
+    CREATE TABLE IF NOT EXISTS exam_rounds (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      opened_at TIMESTAMPTZ,
+      archived_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      archived_by TEXT,
+      settings JSONB NOT NULL,
+      questions JSONB NOT NULL,
+      projects JSONB NOT NULL DEFAULT '[]',
+      participants INTEGER NOT NULL DEFAULT 0,
+      stats JSONB NOT NULL DEFAULT '{}'
+    );
+    CREATE TABLE IF NOT EXISTS archived_attempts (
+      id UUID PRIMARY KEY,
+      round_id INTEGER NOT NULL REFERENCES exam_rounds(id) ON DELETE CASCADE,
+      data JSONB NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS archived_attempts_round_idx ON archived_attempts(round_id);
+    CREATE TABLE IF NOT EXISTS archived_events (
+      id BIGSERIAL PRIMARY KEY,
+      round_id INTEGER NOT NULL REFERENCES exam_rounds(id) ON DELETE CASCADE,
+      attempt_id UUID NOT NULL,
+      type TEXT NOT NULL,
+      detail JSONB,
+      snapshot TEXT,
+      created_at TIMESTAMPTZ NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS archived_events_attempt_idx ON archived_events(attempt_id);
   `);
 }
 

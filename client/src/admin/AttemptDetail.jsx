@@ -4,7 +4,7 @@ import { fmtDateTime, fmtNum, KIND_LABEL, LETTERS, RESULT_LABEL, RESULT_TONE } f
 import { Badge, Button, Loading, Notice, Spinner } from '../lib/ui.jsx';
 
 /** Chi tiết một bài làm; gradable = cho nhập điểm tự luận */
-export default function AttemptDetail({ id, gradable = false, onSaved }) {
+export default function AttemptDetail({ id, gradable = false, onSaved, round = null }) {
   const [d, setD] = useState(null);
   const [scores, setScores] = useState({});
   const [msg, setMsg] = useState(null);
@@ -12,10 +12,10 @@ export default function AttemptDetail({ id, gradable = false, onSaved }) {
   const [onlyEssay, setOnlyEssay] = useState(gradable);
 
   const load = useCallback(async () => {
-    const r = await api(`/admin/attempt?id=${id}`);
+    const r = await api(`/admin/attempt?id=${id}${round ? `&round=${round}` : ''}`);
     setD(r);
     setScores(Object.fromEntries(r.questions.filter((q) => q.type === 'essay').map((q) => [q.id, q.score == null ? '' : String(q.score).replace('.', ',')])));
-  }, [id]);
+  }, [id, round]);
 
   useEffect(() => {
     setD(null);
@@ -67,7 +67,7 @@ export default function AttemptDetail({ id, gradable = false, onSaved }) {
           <div className="text-xs text-slate-500">
             TN đúng {a.mcCorrect ?? 0} câu ({fmtNum(a.mcScore)} điểm) · Tự luận đã chấm {a.essayGraded}/{a.essayTotal}
           </div>
-          <a className="text-xs text-blue-700 hover:underline" href={`/api/admin/attempt-pdf?id=${a.id}`} target="_blank" rel="noreferrer">
+          <a className="text-xs text-blue-700 hover:underline" href={`/api/admin/attempt-pdf?id=${a.id}${round ? `&round=${round}` : ''}`} target="_blank" rel="noreferrer">
             Xem PDF ↗
           </a>
         </div>
