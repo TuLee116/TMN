@@ -75,3 +75,21 @@ export function readFileAsDataUrl(file) {
     r.readAsDataURL(file);
   });
 }
+
+/** "2026-11-13T08:00" (giờ VN, GMT+7) -> Date */
+export function vnLocalToDate(s) {
+  if (!s) return null;
+  const d = new Date(`${s.length === 16 ? s + ':00' : s}+07:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Khoảng thời gian dạng chữ: "2 ngày 3 giờ", "4 giờ 12 phút", "8 phút" */
+export function fmtSpan(ms) {
+  const m = Math.max(0, Math.floor(ms / 60000));
+  const d = Math.floor(m / 1440);
+  const h = Math.floor((m % 1440) / 60);
+  const mm = m % 60;
+  if (d) return `${d} ngày ${h} giờ`;
+  if (h) return `${h} giờ ${mm} phút`;
+  return mm ? `${mm} phút` : 'dưới 1 phút';
+}
