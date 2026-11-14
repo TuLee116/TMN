@@ -110,6 +110,12 @@ export default function SettingsTab() {
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Check label="Hiện tổng điểm cho thí sinh" hint="Hiện sau khi chấm xong tự luận" checked={form.showScore} onChange={set('showScore')} />
             <Check label="Xáo trộn thứ tự câu hỏi" checked={form.shuffleQuestions} onChange={set('shuffleQuestions')} />
+            <Check
+              label="Xáo trộn thứ tự đáp án (A, B, C, D)"
+              hint="Mỗi thí sinh thấy phương án theo thứ tự khác nhau, chấm điểm vẫn theo đáp án gốc. Câu có phương án kiểu “Tất cả các đáp án trên”, “Cả A và B” tự giữ nguyên."
+              checked={form.shuffleOptions}
+              onChange={set('shuffleOptions')}
+            />
           </div>
           <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
             <Check

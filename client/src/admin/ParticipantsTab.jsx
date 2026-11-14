@@ -118,16 +118,29 @@ export default function ParticipantsTab() {
         </Notice>
       </Card>
 
-      <Participation refreshKey={refresh} />
+      <Participation refreshKey={refresh} onChanged={() => load().catch(() => {})} />
     </div>
   );
 }
 
-function Participation({ refreshKey }) {
+function Participation({ refreshKey, onChanged }) {
   const [filter, setFilter] = useState('all');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState('');
+  const [err, setErr] = useState('');
+
+  async function removeOne(r) {
+    if (!confirm(`Xóa ${r.email} khỏi danh sách được phép thi?`)) return;
+    setErr('');
+    try {
+      await api('/admin/participants/one', { method: 'DELETE', body: { email: r.email } });
+      await load();
+      onChanged?.();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -171,6 +184,9 @@ function Participation({ refreshKey }) {
         />
         <input className={`${inputCls} max-w-xs`} placeholder="Tìm STT, họ tên, email" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
+      <Notice tone="error" className="mb-3" onClose={() => setErr('')}>
+        {err}
+      </Notice>
       {!data ? (
         <Loading />
       ) : (
@@ -194,6 +210,17 @@ function Participation({ refreshKey }) {
             { key: 'started_at', label: 'Bắt đầu', className: 'whitespace-nowrap', render: (r) => fmtDateTime(r.started_at) },
             { key: 'submitted_at', label: 'Nộp', className: 'whitespace-nowrap', render: (r) => fmtDateTime(r.submitted_at) },
             { key: 'reasonLabel', label: 'Lý do' },
+            {
+              key: 'act',
+              label: '',
+              className: 'text-right',
+              render: (r) =>
+                r.listed && !r.attempt_id ? (
+                  <Button size="sm" variant="ghost" className="!text-red-600 hover:!bg-red-50" onClick={() => removeOne(r)}>
+                    Xóa
+                  </Button>
+                ) : null,
+            },
           ]}
         />
       )}
