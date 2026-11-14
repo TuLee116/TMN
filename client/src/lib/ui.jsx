@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 
 const BTN = {
-  primary: 'bg-blue-700 text-white hover:bg-blue-800 shadow-sm',
+  primary: 'bg-brand text-white shadow-sm hover:brightness-110 hover:shadow-md',
   secondary: 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50',
   danger: 'bg-red-600 text-white hover:bg-red-700 shadow-sm',
   success: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm',
@@ -171,6 +171,15 @@ export function Logo({ className = 'h-14' }) {
   );
 }
 
+/** Logo đặt trên nền trắng – dùng trên thanh gradient */
+export function LogoChip({ className = 'h-9' }) {
+  return (
+    <span className="inline-flex items-center rounded-xl bg-white px-2.5 py-1.5 shadow-sm ring-1 ring-white/40">
+      <Logo className={className} />
+    </span>
+  );
+}
+
 /** Bảng đơn giản */
 export function Table({ columns, rows, empty = 'Không có dữ liệu', rowKey = (r, i) => r.id ?? i, onRowClick }) {
   return (
@@ -230,4 +239,36 @@ export function FilterTabs({ value, onChange, options }) {
       ))}
     </div>
   );
+}
+
+/** Hiển thị văn bản admin nhập: **đậm** → <b> (không dùng HTML để tránh chèn mã) */
+export function Bold({ text }) {
+  const parts = String(text || '').split(/\*\*(.+?)\*\*/g);
+  return parts.map((p, i) => (i % 2 ? <b key={i}>{p}</b> : p));
+}
+
+/** Đoạn văn nhiều dòng: dòng trống tách đoạn */
+export function Paragraphs({ text, className = '' }) {
+  const paras = String(text || '')
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!paras.length) return null;
+  return (
+    <div className={`space-y-2 ${className}`}>
+      {paras.map((p, i) => (
+        <p key={i} className="whitespace-pre-line">
+          <Bold text={p} />
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** Tách nội quy: mỗi dòng một ý, bỏ ký tự gạch đầu dòng nếu có */
+export function ruleLines(text) {
+  return String(text || '')
+    .split('\n')
+    .map((l) => l.replace(/^\s*(?:[-•*+]|\d+[.)])\s+/, '').trim())
+    .filter(Boolean);
 }

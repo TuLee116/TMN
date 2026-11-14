@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
-import { Button, Field, inputCls, Loading, Logo, Notice, Spinner } from '../lib/ui.jsx';
+import { Button, Field, inputCls, Loading, Logo, LogoChip, Notice, Spinner } from '../lib/ui.jsx';
 import SettingsTab from './SettingsTab.jsx';
 import ParticipantsTab from './ParticipantsTab.jsx';
 import QuestionsTab from './QuestionsTab.jsx';
@@ -61,18 +61,19 @@ export default function AdminApp() {
           Máy chủ đang chạy CHẾ ĐỘ THỬ (TEST_MODE=true)
         </div>
       )}
-      <header className="border-b border-slate-200 bg-white">
+      <header className="bg-brand text-white shadow-md">
         <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
-          <Logo className="h-9" />
+          <LogoChip className="h-10" />
           <div className="flex-1">
-            <div className="text-sm font-semibold text-slate-900">Quản trị kiểm tra nội bộ</div>
-            <a href="#/" className="text-xs text-blue-700 hover:underline" target="_blank" rel="noreferrer">
+            <div className="text-base font-bold tracking-wide">Quản trị kiểm tra nội bộ</div>
+            <a href="#/" className="text-xs text-white/80 hover:text-white hover:underline" target="_blank" rel="noreferrer">
               Mở trang thí sinh ↗
             </a>
           </div>
           <Button
             variant="ghost"
             size="sm"
+            className="!text-white hover:!bg-white/15"
             onClick={async () => {
               await api('/admin/logout', { method: 'POST' }).catch(() => {});
               setMe({ ...me, admin: false });
@@ -86,8 +87,8 @@ export default function AdminApp() {
             <button
               key={t.id}
               onClick={() => choose(t.id)}
-              className={`whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition ${
-                tab === t.id ? 'border-blue-700 text-blue-700' : 'border-transparent text-slate-600 hover:text-slate-900'
+              className={`whitespace-nowrap rounded-t-lg px-4 py-2.5 text-sm font-semibold transition ${
+                tab === t.id ? 'bg-slate-50 text-blue-700' : 'text-white/80 hover:bg-white/10 hover:text-white'
               }`}
             >
               {t.label}
@@ -107,9 +108,9 @@ function Login({ onDone }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
+    <div className="bg-brand flex min-h-screen items-center justify-center p-4">
       <form
-        className="w-full max-w-sm space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+        className="w-full max-w-sm space-y-4 rounded-2xl bg-white p-7 shadow-2xl"
         onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true);
@@ -125,9 +126,9 @@ function Login({ onDone }) {
         }}
       >
         <div className="flex justify-center">
-          <Logo className="h-12" />
+          <Logo className="h-20" />
         </div>
-        <h1 className="text-center text-lg font-semibold">Đăng nhập quản trị</h1>
+        <h1 className="text-brand text-center text-xl font-bold">Đăng nhập quản trị</h1>
         <Field label="Mật khẩu">
           <input className={inputCls} type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus />
         </Field>

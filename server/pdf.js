@@ -28,8 +28,20 @@ const KIND_LABEL = {
 
 const fmtNum = (n) => (n == null ? '—' : String(Math.round(Number(n) * 100) / 100).replace('.', ','));
 
+// Logo mặc định khi admin chưa tải logo lên
+const DEFAULT_LOGO = [path.resolve(process.cwd(), 'public/logo.png'), path.resolve(process.cwd(), 'dist/logo.png')].find((p) =>
+  fs.existsSync(p)
+);
+
 function logoBuffer(logo) {
-  if (!logo?.data || !/^image\/(png|jpe?g)$/.test(logo.mime)) return null;
+  if (!logo?.data) {
+    try {
+      return DEFAULT_LOGO ? fs.readFileSync(DEFAULT_LOGO) : null;
+    } catch {
+      return null;
+    }
+  }
+  if (!/^image\/(png|jpe?g)$/.test(logo.mime)) return null;
   try {
     return Buffer.from(logo.data, 'base64');
   } catch {
