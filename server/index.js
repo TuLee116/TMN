@@ -25,6 +25,7 @@ import {
   to10,
   SCORE_BUCKETS,
   SUBMIT_REASON_LABEL,
+  sameSet,
 } from './util.js';
 import {
   questionMap,
@@ -33,12 +34,15 @@ import {
   submitAttempt,
   finalizeOverdue,
   regrade,
+  regradeQuestion,
+  answerList,
   isAnswered,
   participationStatus,
   PARTICIPATION_LABEL,
 } from './attempts.js';
 import {
   parseQuestionsXlsx,
+  finishQuestion,
   parseQuestionsDocx,
   questionTemplateXlsx,
   questionTemplateDocx,
@@ -204,6 +208,39 @@ app.get(
 const MP_WASM = path.join(ROOT, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm');
 if (fs.existsSync(MP_WASM)) app.use('/mediapipe/wasm', express.static(MP_WASM, { maxAge: '7d' }));
 
+/** Số câu mỗi mức độ khó theo tỷ lệ cấu hình (tổng đúng bằng n) */
+function mixTargets(s, n) {
+  const pct = { easy: Number(s.mixEasy) || 0, medium: Number(s.mixMedium) || 0, hard: Number(s.mixHard) || 0 };
+  const t = { easy: Math.round((n * pct.easy) / 100), hard: Math.round((n * pct.hard) / 100) };
+  t.medium = Math.max(0, n - t.easy - t.hard);
+  if (t.easy + t.hard > n) t.hard = n - t.easy;
+  return t;
+}
+
+/** Rút câu trắc nghiệm; thiếu câu ở mức nào thì bù bằng câu bất kỳ còn lại */
+async function drawMc(s) {
+  const n = s.multipleChoiceCount;
+  if (!n) return [];
+  if (!s.mixEnabled) {
+    return (await q(`SELECT id, position FROM questions WHERE active AND type <> 'essay' ORDER BY random() LIMIT $1`, [n])).rows;
+  }
+  const t = mixTargets(s, n);
+  const picked = [];
+  for (const lv of ['easy', 'medium', 'hard']) {
+    if (!t[lv]) continue;
+    const r = await q(`SELECT id, position FROM questions WHERE active AND type <> 'essay' AND difficulty=$1 ORDER BY random() LIMIT $2`, [lv, t[lv]]);
+    picked.push(...r.rows);
+  }
+  if (picked.length < n) {
+    const r = await q(
+      `SELECT id, position FROM questions WHERE active AND type <> 'essay' AND NOT (id = ANY($1::int[])) ORDER BY random() LIMIT $2`,
+      [picked.map((x) => x.id), n - picked.length]
+    );
+    picked.push(...r.rows);
+  }
+  return picked;
+}
+
 /* ------------------------------------------------------------------ */
 /* API thí sinh                                                        */
 /* ------------------------------------------------------------------ */
@@ -276,12 +313,8 @@ app.post(
       throw new HttpError(409, 'Email này đã có lượt kiểm tra. Mỗi email chỉ được làm một lần.');
     }
 
-    // Chọn đề ngẫu nhiên
-    const mc = (
-      await q(`SELECT id, position FROM questions WHERE active AND type <> 'essay' ORDER BY random() LIMIT $1`, [
-        s.multipleChoiceCount,
-      ])
-    ).rows;
+    // Chọn đề ngẫu nhiên (trắc nghiệm có thể theo tỷ lệ độ khó)
+    const mc = await drawMc(s);
     const es = (
       await q(`SELECT id, position FROM questions WHERE active AND type = 'essay' ORDER BY random() LIMIT $1`, [s.essayCount])
     ).rows;
@@ -519,8 +552,12 @@ function cleanSettings(input, prev) {
   num('webcamYawThreshold', 0.02, 1);
   num('webcamGazeThreshold', 0.02, 1);
   num('webcamMaxWarnings', 0, 100, true);
+  num('mixEasy', 0, 100, true);
+  num('mixMedium', 0, 100, true);
+  num('mixHard', 0, 100, true);
   if (input.displayMode !== undefined) s.displayMode = input.displayMode === 'all' ? 'all' : 'paged';
-  for (const k of ['active', 'showScore', 'shuffleQuestions', 'webcamEnabled', 'webcamRequired']) bool(k);
+  for (const k of ['active', 'showScore', 'shuffleQuestions', 'webcamEnabled', 'webcamRequired', 'mixEnabled']) bool(k);
+  if (s.mixEnabled && s.mixEasy + s.mixMedium + s.mixHard !== 100) throw new HttpError(400, 'Tổng tỷ lệ Dễ + Trung bình + Khó phải bằng 100%.');
   if (s.multipleChoiceCount + s.essayCount < 1) throw new HttpError(400, 'Đề phải có ít nhất 1 câu.');
   if (maxScoreOf(s) <= 0) throw new HttpError(400, 'Tổng điểm tối đa phải lớn hơn 0.');
   return s;
@@ -740,11 +777,98 @@ async function attemptCount() {
   return (await q(`SELECT count(*)::int AS n FROM exam_attempts`)).rows[0].n;
 }
 
+/** Thống kê từng câu từ các bài đã nộp: số lần xuất hiện, tỷ lệ đúng / điểm TB tự luận */
+async function questionStats() {
+  const r = await q(`SELECT question_ids, answers, essay_scores, settings_snapshot FROM exam_attempts WHERE submitted_at IS NOT NULL`);
+  const qmap = await questionMap();
+  const st = {};
+  for (const a of r.rows) {
+    for (const id of a.question_ids) {
+      const qu = qmap.get(id);
+      if (!qu) continue;
+      const x = (st[id] ||= { shown: 0, answered: 0, correct: 0, scored: 0, scoreSum: 0 });
+      x.shown++;
+      const v = a.answers?.[id];
+      if (isAnswered(qu, v)) x.answered++;
+      if (qu.type === 'essay') {
+        const sc = a.essay_scores?.[id];
+        const max = Number(a.settings_snapshot?.essayPointsPerQuestion) || 0;
+        if (sc != null && sc !== '' && max > 0) {
+          x.scored++;
+          x.scoreSum += Number(sc) / max;
+        }
+      } else if (answerList(v).length && sameSet(answerList(v), qu.correct)) x.correct++;
+    }
+  }
+  for (const [id, x] of Object.entries(st)) {
+    const qu = qmap.get(Number(id));
+    x.rate = qu?.type === 'essay' ? (x.scored ? round2((x.scoreSum / x.scored) * 100) : null) : x.shown ? round2((x.correct / x.shown) * 100) : null;
+  }
+  return st;
+}
+
 app.get(
   '/api/admin/questions',
   wrap(async (_req, res) => {
-    const r = await q(`SELECT * FROM questions ORDER BY position, id`);
-    res.json({ questions: r.rows, locked: (await attemptCount()) > 0 });
+    const [r, stats, n] = await Promise.all([q(`SELECT * FROM questions ORDER BY position, id`), questionStats(), attemptCount()]);
+    res.json({ questions: r.rows.map((x) => ({ ...x, stats: stats[x.id] || null })), locked: n > 0 });
+  })
+);
+
+function questionInput(body) {
+  const b = body || {};
+  const options = Array.isArray(b.options) ? b.options.slice(0, 6).map((o) => String(o ?? '')) : [];
+  const correct = Array.isArray(b.correct) ? b.correct.join(',') : String(b.correct || '');
+  const { question, errors } = finishQuestion({ ...b, options, correct });
+  if (errors.length) throw new HttpError(400, errors.join('; '));
+  return question;
+}
+
+app.post(
+  '/api/admin/questions',
+  wrap(async (req, res) => {
+    if ((await attemptCount()) > 0) throw new HttpError(409, 'Đã có thí sinh bắt đầu làm bài, không thể thêm câu hỏi. Có thể thêm sau khi dọn dữ liệu bài làm.');
+    const x = questionInput(req.body);
+    const r = await q(
+      `INSERT INTO questions(type, text, options, correct, reference, topic, difficulty, position)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,(SELECT COALESCE(max(position),0)+1 FROM questions)) RETURNING *`,
+      [x.type, x.text, JSON.stringify(x.options), JSON.stringify(x.correct), x.reference, x.topic, x.difficulty]
+    );
+    res.json({ question: r.rows[0] });
+  })
+);
+
+app.put(
+  '/api/admin/questions/:id',
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const cur = (await q(`SELECT * FROM questions WHERE id=$1`, [id])).rows[0];
+    if (!cur) throw new HttpError(404, 'Không tìm thấy câu hỏi.');
+    const x = questionInput(req.body);
+    const locked = (await attemptCount()) > 0;
+    let regraded = 0;
+    if (locked) {
+      // Đã có bài làm: chỉ cho sửa đáp án đúng, đáp án tham khảo, chủ đề, độ khó
+      const same = x.type === cur.type && x.text === cur.text && JSON.stringify(x.options) === JSON.stringify(cur.options);
+      if (!same)
+        throw new HttpError(409, 'Đã có bài làm: không sửa được nội dung, phương án hay loại câu. Chỉ sửa được đáp án đúng, đáp án tham khảo, chủ đề, độ khó.');
+    }
+    const r = await q(
+      `UPDATE questions SET type=$2, text=$3, options=$4, correct=$5, reference=$6, topic=$7, difficulty=$8 WHERE id=$1 RETURNING *`,
+      [id, x.type, x.text, JSON.stringify(x.options), JSON.stringify(x.correct), x.reference, x.topic, x.difficulty]
+    );
+    if (locked && JSON.stringify(x.correct) !== JSON.stringify(cur.correct)) regraded = await regradeQuestion(id);
+    res.json({ question: r.rows[0], regraded });
+  })
+);
+
+app.delete(
+  '/api/admin/questions/:id',
+  wrap(async (req, res) => {
+    if ((await attemptCount()) > 0) throw new HttpError(409, 'Đã có bài làm: không xóa được câu hỏi, hãy dùng "Ẩn".');
+    const r = await q(`DELETE FROM questions WHERE id=$1`, [Number(req.params.id)]);
+    if (!r.rowCount) throw new HttpError(404, 'Không tìm thấy câu hỏi.');
+    res.json({ ok: true });
   })
 );
 
@@ -791,9 +915,10 @@ app.post(
       const start = (await c.query(`SELECT COALESCE(max(position),0)::int AS m FROM questions`)).rows[0].m;
       const rows = questions.map((x, i) => ({ ...x, position: start + i + 1 }));
       await c.query(
-        `INSERT INTO questions(type, text, options, correct, reference, position)
-         SELECT type, text, options, correct, reference, position
-         FROM jsonb_to_recordset($1::jsonb) AS x(type text, text text, options jsonb, correct jsonb, reference text, position int)`,
+        `INSERT INTO questions(type, text, options, correct, reference, position, topic, difficulty)
+         SELECT type, text, options, correct, reference, position, topic, difficulty
+         FROM jsonb_to_recordset($1::jsonb)
+           AS x(type text, text text, options jsonb, correct jsonb, reference text, position int, topic text, difficulty text)`,
         [JSON.stringify(rows)]
       );
     });
@@ -805,7 +930,7 @@ app.post(
 app.patch(
   '/api/admin/questions/:id',
   wrap(async (req, res) => {
-    if ((await attemptCount()) > 0) throw new HttpError(409, 'Đã có thí sinh bắt đầu làm bài, không thể sửa ngân hàng câu hỏi.');
+    // Ẩn / hiện chỉ ảnh hưởng các lượt rút đề sau, bài đã làm vẫn chấm theo câu gốc
     const r = await q(`UPDATE questions SET active=$2 WHERE id=$1 RETURNING *`, [Number(req.params.id), !!req.body?.active]);
     if (!r.rowCount) throw new HttpError(404, 'Không tìm thấy câu hỏi.');
     res.json({ question: r.rows[0] });
@@ -1079,6 +1204,19 @@ app.get(
       todo.push({ tone: 'red', tab: 'questions', text: `Thiếu câu trắc nghiệm: có ${bank.mc}/${s.multipleChoiceCount} câu đang dùng.` });
     if (bank.essay < s.essayCount)
       todo.push({ tone: 'red', tab: 'questions', text: `Thiếu câu tự luận: có ${bank.essay}/${s.essayCount} câu đang dùng.` });
+    if (s.mixEnabled && s.multipleChoiceCount) {
+      const t = mixTargets(s, s.multipleChoiceCount);
+      const lv = (await q(`SELECT difficulty, count(*)::int AS n FROM questions WHERE active AND type <> 'essay' GROUP BY difficulty`)).rows;
+      const have = Object.fromEntries(lv.map((x) => [x.difficulty, x.n]));
+      const NAME = { easy: 'Dễ', medium: 'Trung bình', hard: 'Khó' };
+      const short = ['easy', 'medium', 'hard'].filter((k) => (have[k] || 0) < t[k]);
+      if (short.length)
+        todo.push({
+          tone: 'amber',
+          tab: 'questions',
+          text: `Thiếu câu theo độ khó (${short.map((k) => `${NAME[k]} ${have[k] || 0}/${t[k]}`).join(', ')}) – hệ thống sẽ bù bằng câu khác.`,
+        });
+    }
     if (!participants) todo.push({ tone: 'red', tab: 'participants', text: 'Chưa có danh sách email được phép thi.' });
     if (!s.openingAt || !s.closingAt) todo.push({ tone: 'amber', tab: 'settings', text: 'Chưa đặt đủ thời gian mở / đóng kỳ thi.' });
     if (!s.active) todo.push({ tone: 'amber', tab: 'settings', text: 'Kỳ thi đang tắt ("Mở kỳ thi" chưa bật).' });

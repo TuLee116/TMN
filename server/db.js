@@ -61,6 +61,11 @@ export const DEFAULT_SETTINGS = {
   displayMode: 'paged',
   active: false,
   shuffleQuestions: true,
+  // Rút đề trắc nghiệm theo tỷ lệ độ khó (%)
+  mixEnabled: false,
+  mixEasy: 40,
+  mixMedium: 40,
+  mixHard: 20,
   // Giám sát webcam
   webcamEnabled: false,
   webcamRequired: true,
@@ -138,6 +143,8 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS exam_events_attempt_idx ON exam_events(attempt_id);
+    ALTER TABLE questions ADD COLUMN IF NOT EXISTS topic TEXT;
+    ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT;
   `);
 }
 

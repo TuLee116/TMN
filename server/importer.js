@@ -40,12 +40,22 @@ function normType(t) {
   return f;
 }
 
+/** Độ khó: dễ / trung bình / khó (hoặc easy / medium / hard). Trả về null nếu bỏ trống, false nếu sai. */
+export function normDifficulty(v) {
+  const f = fold(v);
+  if (!f) return null;
+  if (['easy', 'de', '1'].includes(f)) return 'easy';
+  if (['medium', 'trung binh', 'tb', 'vua', '2'].includes(f)) return 'medium';
+  if (['hard', 'kho', '3'].includes(f)) return 'hard';
+  return false;
+}
+
 function parseCorrect(s) {
   return [...new Set(String(s ?? '').toUpperCase().split(/[\s,;/.]+/).filter((x) => LETTERS.includes(x)))].sort();
 }
 
 /** Kiểm tra và chuẩn hoá một câu hỏi thô. Trả về { question, errors[] } */
-function finishQuestion(raw) {
+export function finishQuestion(raw) {
   const errors = [];
   const text = String(raw.text || '').trim();
   if (!text) errors.push('Thiếu nội dung câu hỏi');
@@ -64,6 +74,8 @@ function finishQuestion(raw) {
     if (bad.length) errors.push(`Đáp án ${bad.join(',')} không có phương án tương ứng`);
     if (type === 'single' && correct.length > 1) errors.push('Câu "single" chỉ được một đáp án đúng');
   }
+  const difficulty = normDifficulty(raw.difficulty);
+  if (difficulty === false) errors.push(`Độ khó "${raw.difficulty}" không hợp lệ (dễ / trung bình / khó)`);
   return {
     errors,
     question: {
@@ -72,6 +84,8 @@ function finishQuestion(raw) {
       options: type === 'essay' ? [] : opts,
       correct: type === 'essay' ? [] : correct,
       reference: String(raw.reference || '').trim() || null,
+      topic: String(raw.topic || '').trim().slice(0, 100) || null,
+      difficulty: difficulty || null,
     },
   };
 }
@@ -92,7 +106,7 @@ export async function parseQuestionsXlsx(buffer) {
       break;
     }
   }
-  const col = { text: 1, A: 2, B: 3, C: 4, D: 5, E: 6, F: 7, correct: 8, type: 9, reference: 11 };
+  const col = { text: 1, A: 2, B: 3, C: 4, D: 5, E: 6, F: 7, correct: 8, type: 9, reference: 11, topic: 12, difficulty: 13 };
   ws.getRow(headerRow).eachCell((cell, c) => {
     const h = fold(cellText(cell.value));
     if (h === 'cau hoi') col.text = c;
@@ -100,6 +114,8 @@ export async function parseQuestionsXlsx(buffer) {
     else if (h.startsWith('dap an tham khao')) col.reference = c;
     else if (h.startsWith('dap an dung') || h === 'dap an') col.correct = c;
     else if (h.startsWith('loai')) col.type = c;
+    else if (h.startsWith('chu de')) col.topic = c;
+    else if (h.startsWith('do kho')) col.difficulty = c;
   });
 
   const questions = [];
@@ -113,6 +129,8 @@ export async function parseQuestionsXlsx(buffer) {
       correct: get(col.correct),
       type: get(col.type),
       reference: get(col.reference),
+      topic: get(col.topic),
+      difficulty: get(col.difficulty),
     };
     if (!raw.text && raw.options.every((o) => !o) && !raw.correct && !raw.type) continue; // dòng trống
     const { question, errors: e } = finishQuestion(raw);
@@ -141,7 +159,7 @@ export async function parseQuestionsDocx(buffer) {
     if (!line) continue;
     let m;
     if ((m = line.match(/^C[âa]u\s*(\d+)\s*[:.)]\s*(.*)$/i))) {
-      cur = { no: Number(m[1]), text: m[2], options: [], correct: '', type: '', reference: '' };
+      cur = { no: Number(m[1]), text: m[2], options: [], correct: '', type: '', reference: '', topic: '', difficulty: '' };
       blocks.push(cur);
       field = 'text';
       continue;
@@ -161,6 +179,12 @@ export async function parseQuestionsDocx(buffer) {
       field = null;
     } else if (/^loai( cau hoi)?\s*:/.test(f)) {
       cur.type = line.slice(line.indexOf(':') + 1);
+      field = null;
+    } else if (/^chu de\s*:/.test(f)) {
+      cur.topic = line.slice(line.indexOf(':') + 1).trim();
+      field = null;
+    } else if (/^do kho\s*:/.test(f)) {
+      cur.difficulty = line.slice(line.indexOf(':') + 1).trim();
       field = null;
     } else if (/^diem\s*:/.test(f)) {
       field = null;
@@ -184,14 +208,16 @@ export async function parseQuestionsDocx(buffer) {
 }
 
 const SAMPLES = [
-  { text: 'Thủ đô của Việt Nam là?', options: ['Hà Nội', 'Huế', 'Đà Nẵng', 'Cần Thơ'], correct: 'A', type: 'single', reference: '' },
-  { text: 'Chọn các số nguyên tố', options: ['2', '4', '5'], correct: 'A,C', type: 'multiple', reference: '' },
+  { text: 'Thủ đô của Việt Nam là?', options: ['Hà Nội', 'Huế', 'Đà Nẵng', 'Cần Thơ'], correct: 'A', type: 'single', reference: '', topic: 'Kiến thức chung', difficulty: 'Dễ' },
+  { text: 'Chọn các số nguyên tố', options: ['2', '4', '5'], correct: 'A,C', type: 'multiple', reference: '', topic: 'Toán', difficulty: 'Trung bình' },
   {
     text: 'Trình bày một giải pháp bảo vệ môi trường',
     options: [],
     correct: '',
     type: 'essay',
     reference: 'Phân loại rác tại nguồn, giảm sử dụng nhựa dùng một lần…',
+    topic: 'Môi trường',
+    difficulty: 'Khó',
   },
 ];
 
@@ -205,10 +231,12 @@ export async function questionTemplateXlsx() {
     { header: 'Loại (single/multiple/essay)', width: 26 },
     { header: 'Điểm (đặt trong cấu hình – chỉ để tham khảo)', width: 22 },
     { header: 'Đáp án tham khảo', width: 50 },
+    { header: 'Chủ đề', width: 22 },
+    { header: 'Độ khó (dễ/trung bình/khó)', width: 24 },
   ];
   for (const s of SAMPLES) {
     const opts = LETTERS.map((_, i) => s.options[i] || '');
-    ws.addRow([s.text, ...opts, s.correct, s.type, '', s.reference]);
+    ws.addRow([s.text, ...opts, s.correct, s.type, '', s.reference, s.topic, s.difficulty]);
   }
   ws.getRow(1).font = { bold: true };
   ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
@@ -220,7 +248,7 @@ export async function questionTemplateDocx() {
   const p = (text, opts = {}) => new Paragraph({ children: [new TextRun({ text, ...opts })] });
   const children = [
     new Paragraph({ text: 'Mẫu nhập câu hỏi', heading: HeadingLevel.HEADING_1 }),
-    p('Mỗi câu bắt đầu bằng "Câu <số>:". Phương án viết "A.", "B."… (tối đa F). Dòng "Đáp án:" ghi chữ cái đáp án đúng, nhiều đáp án cách nhau dấu phẩy. Dòng "Loại:" là single, multiple hoặc essay. Câu tự luận có thể thêm "Đáp án tham khảo:". Điểm từng loại câu đặt trong phần Cấu hình.', { italics: true }),
+    p('Mỗi câu bắt đầu bằng "Câu <số>:". Phương án viết "A.", "B."… (tối đa F). Dòng "Đáp án:" ghi chữ cái đáp án đúng, nhiều đáp án cách nhau dấu phẩy. Dòng "Loại:" là single, multiple hoặc essay. Câu tự luận có thể thêm "Đáp án tham khảo:". Có thể thêm "Chủ đề:" và "Độ khó:" (dễ / trung bình / khó). Điểm từng loại câu đặt trong phần Cấu hình.', { italics: true }),
     p(''),
   ];
   SAMPLES.forEach((s, i) => {
@@ -229,6 +257,8 @@ export async function questionTemplateDocx() {
     if (s.correct) children.push(p(`Đáp án: ${s.correct}`));
     children.push(p(`Loại: ${s.type}`));
     if (s.reference) children.push(p(`Đáp án tham khảo: ${s.reference}`));
+    children.push(p(`Chủ đề: ${s.topic}`));
+    children.push(p(`Độ khó: ${s.difficulty}`));
     children.push(p(''));
   });
   const doc = new Document({ sections: [{ children }] });
