@@ -171,6 +171,10 @@ export default function SettingsTab() {
           </p>
         </Card>
 
+        <Card title={<Anchor id="email">Email kết quả</Anchor>} className="mt-6">
+          <EmailTemplate form={form} set={set} />
+        </Card>
+
         <Card title={<Anchor id="giam-sat">Giám sát webcam</Anchor>} className="mt-6">
           <div className="grid gap-3 md:grid-cols-2">
             <Check
@@ -390,13 +394,14 @@ const SECTIONS = [
   ['lich-thi', 'Lịch thi'],
   ['de-diem', 'Đề và điểm'],
   ['noi-dung', 'Nội dung'],
+  ['email', 'Email kết quả'],
   ['giam-sat', 'Giám sát webcam'],
   ['cong-trinh', 'Công trình & logo'],
 ];
 
 function SectionNav() {
   return (
-    <nav className="sticky top-0 z-20 -mx-1 mb-4 flex gap-2 overflow-x-auto bg-transparent px-1 py-2 lg:top-2">
+    <nav className="sticky top-0 z-20 -mx-2 mb-4 flex gap-2 overflow-x-auto rounded-2xl bg-slate-100/85 px-2 py-2 backdrop-blur lg:top-2">
       {SECTIONS.map(([id, label]) => (
         <button
           key={id}
@@ -416,5 +421,69 @@ function Anchor({ id, children }) {
     <span id={id} className="scroll-mt-24">
       {children}
     </span>
+  );
+}
+
+const VARS = [
+  ['{ho_ten}', 'Họ tên'],
+  ['{ky_thi}', 'Tiêu đề kỳ thi'],
+  ['{ket_qua}', 'ĐẠT / KHÔNG ĐẠT'],
+  ['{thang_10}', 'Điểm thang 10'],
+  ['{tong_diem}', 'Tổng điểm'],
+  ['{diem_toi_da}', 'Điểm tối đa'],
+  ['{ngay_nop}', 'Thời gian nộp'],
+  ['{don_vi}', 'Tên đơn vị'],
+  ['{email}', 'Email'],
+];
+
+function EmailTemplate({ form, set }) {
+  const [pv, setPv] = useState(null);
+  const [err, setErr] = useState('');
+  async function preview() {
+    setErr('');
+    try {
+      setPv(await api('/admin/email/preview', { method: 'POST', body: { subject: form.emailSubject, body: form.emailBody } }));
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+      <div className="space-y-4">
+        <Field label="Tiêu đề email">
+          <input className={inputCls} value={form.emailSubject || ''} onChange={(e) => set('emailSubject')(e.target.value)} />
+        </Field>
+        <Field label="Nội dung email">
+          <textarea rows={9} className={inputCls} value={form.emailBody || ''} onChange={(e) => set('emailBody')(e.target.value)} />
+        </Field>
+        <div className="flex items-center gap-3">
+          <Button variant="secondary" size="sm" onClick={preview}>
+            Xem trước
+          </Button>
+          <span className="text-xs text-slate-500">Gửi email ở tab Hồ sơ kết quả. Chỉ gửi bài đã có kết quả (đã chấm xong tự luận).</span>
+        </div>
+        <Notice tone="error">{err}</Notice>
+        {pv && (
+          <div className="rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-4 py-2 text-sm">
+              <span className="text-slate-500">Tiêu đề:</span> <b>{pv.subject}</b>
+              {pv.sample && <span className="ml-2 text-xs text-slate-400">(dữ liệu mẫu)</span>}
+            </div>
+            <pre className="whitespace-pre-wrap px-4 py-3 font-sans text-sm text-slate-800">{pv.body}</pre>
+          </div>
+        )}
+      </div>
+      <div className="rounded-xl bg-slate-50 p-4 text-sm">
+        <div className="mb-2 font-semibold text-slate-700">Trường tự điền</div>
+        <ul className="space-y-1">
+          {VARS.map(([k, l]) => (
+            <li key={k} className="flex justify-between gap-2">
+              <code className="rounded bg-white px-1.5 text-xs text-blue-800 ring-1 ring-slate-200">{k}</code>
+              <span className="text-xs text-slate-500">{l}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }

@@ -26,18 +26,28 @@ export async function loadEvents(attemptIds) {
   return m;
 }
 
-/** Ghi ZIP (Excel tổng hợp + PDF từng bài) ra stream res */
-export async function writeResultsZip(res) {
-  const [settings, logo, qmap, projects, attemptsR] = await Promise.all([
-    getSettings(),
-    getLogo(),
-    questionMap(),
-    q(`SELECT id, name FROM projects`),
-    q(`SELECT * FROM exam_attempts ORDER BY seq NULLS LAST, started_at`),
-  ]);
-  const projectName = new Map(projects.rows.map((p) => [p.id, p.name]));
-  const attempts = attemptsR.rows;
-  const events = await loadEvents(attempts.map((a) => a.id));
+/**
+ * Ghi ZIP (Excel tổng hợp + PDF từng bài) ra stream res.
+ * src (tùy chọn) = { attempts, qmap, projectName: Map, events: Map, title } – dùng cho đợt thi đã lưu trữ.
+ */
+export async function writeResultsZip(res, src = null) {
+  const logo = await getLogo();
+  let attempts, qmap, projectName, events, title;
+  if (src) {
+    ({ attempts, qmap, projectName, events, title } = src);
+  } else {
+    const [settings, qm, projects, attemptsR] = await Promise.all([
+      getSettings(),
+      questionMap(),
+      q(`SELECT id, name FROM projects`),
+      q(`SELECT * FROM exam_attempts ORDER BY seq NULLS LAST, started_at`),
+    ]);
+    qmap = qm;
+    projectName = new Map(projects.rows.map((p) => [p.id, p.name]));
+    attempts = attemptsR.rows;
+    events = await loadEvents(attempts.map((a) => a.id));
+    title = settings.title;
+  }
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Tổng hợp');
@@ -116,7 +126,7 @@ export async function writeResultsZip(res) {
       projectName: projectName.get(a.project_id),
       events: events.get(a.id) || [],
       logo,
-      title: settings.title,
+      title,
     });
     archive.append(pdf, { name: `pdf/${file}` });
     const row = ws2.addRow([a.seq, a.name, a.email, RESULT_LABEL[a.result] || '', '']);

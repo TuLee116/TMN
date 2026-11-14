@@ -26,6 +26,7 @@ import {
   SCORE_BUCKETS,
   SUBMIT_REASON_LABEL,
   sameSet,
+  fmtVN,
 } from './util.js';
 import {
   questionMap,
@@ -39,6 +40,7 @@ import {
   isAnswered,
   participationStatus,
   PARTICIPATION_LABEL,
+  RESULT_LABEL,
 } from './attempts.js';
 import {
   parseQuestionsXlsx,
@@ -51,6 +53,7 @@ import {
 } from './importer.js';
 import { renderAttemptPdf } from './pdf.js';
 import { writeResultsZip, loadEvents, pdfFileName } from './export.js';
+import { audit, AUDIT_LABEL, fillTemplate, hashPassword, mailConfig, ROLE_LABEL, sendMail, verifyPassword } from './accounts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -474,24 +477,46 @@ app.post(
 /* Xác thực admin                                                      */
 /* ------------------------------------------------------------------ */
 
-function isAdmin(req) {
+const SUPER = { id: 0, username: 'admin', name: 'Quản trị chính', role: 'admin' };
+
+/** Đọc phiên quản trị: trả về người dùng { id, username, name, role } hoặc null */
+async function adminFromReq(req) {
   const v = readSigned(parseCookies(req)[ADMIN_COOKIE]);
-  if (!v || !v.startsWith('admin:')) return false;
-  return Number(v.slice(6)) > Date.now();
+  if (!v || !v.startsWith('admin:')) return null;
+  const [, exp, uid] = v.split(':');
+  if (!(Number(exp) > Date.now())) return null;
+  const id = Number(uid || 0);
+  if (!id) return SUPER;
+  const r = await q(`SELECT id, username, name, role FROM admin_users WHERE id=$1 AND active`, [id]);
+  return r.rows[0] || null;
 }
 
 app.post(
   '/api/admin/login',
   wrap(async (req, res) => {
-    if (!ADMIN_PASSWORD) throw new HttpError(500, 'Máy chủ chưa đặt ADMIN_PASSWORD.');
+    const username = String(req.body?.username || '').trim().toLowerCase();
     const pw = String(req.body?.password || '');
     await new Promise((r) => setTimeout(r, 300)); // làm chậm dò mật khẩu
-    if (!safePasswordEqual(pw, ADMIN_PASSWORD)) throw new HttpError(401, 'Mật khẩu không đúng.');
-    setCookie(res, ADMIN_COOKIE, makeSigned(`admin:${Date.now() + ADMIN_TTL_SEC * 1000}`), {
+    let user = null;
+    if (!username || username === 'admin') {
+      if (!ADMIN_PASSWORD) throw new HttpError(500, 'Máy chủ chưa đặt ADMIN_PASSWORD.');
+      if (safePasswordEqual(pw, ADMIN_PASSWORD)) user = SUPER;
+    } else {
+      const r = await q(`SELECT * FROM admin_users WHERE username=$1 AND active`, [username]);
+      if (r.rows[0] && verifyPassword(pw, r.rows[0].password_hash)) user = r.rows[0];
+    }
+    if (!user) {
+      await audit(req, 'login_failed', { username: username || 'admin' });
+      throw new HttpError(401, 'Tên đăng nhập hoặc mật khẩu không đúng.');
+    }
+    if (user.id) await q(`UPDATE admin_users SET last_login_at=now() WHERE id=$1`, [user.id]);
+    req.adminUser = { id: user.id, username: user.username, name: user.name, role: user.role };
+    await audit(req, 'login');
+    setCookie(res, ADMIN_COOKIE, makeSigned(`admin:${Date.now() + ADMIN_TTL_SEC * 1000}:${user.id}`), {
       maxAge: ADMIN_TTL_SEC,
       secure: isSecure(req),
     });
-    res.json({ ok: true });
+    res.json({ ok: true, user: req.adminUser });
   })
 );
 
@@ -500,12 +525,33 @@ app.post('/api/admin/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/admin/me', (req, res) => res.json({ admin: isAdmin(req), testMode: TEST_MODE }));
+app.get(
+  '/api/admin/me',
+  wrap(async (req, res) => {
+    const u = await adminFromReq(req);
+    res.json({ admin: !!u, user: u, testMode: TEST_MODE });
+  })
+);
 
-app.use('/api/admin', (req, _res, next) => {
-  if (!isAdmin(req)) return next(new HttpError(401, 'Phiên quản trị đã hết hạn, vui lòng đăng nhập lại.'));
-  next();
-});
+// Giám khảo chỉ được dùng các API chấm bài
+const GRADER_ALLOWED = [
+  ['GET', '/grading'],
+  ['GET', '/attempt'],
+  ['GET', '/attempt-pdf'],
+  ['POST', '/grade-essay-attempt'],
+];
+
+app.use(
+  '/api/admin',
+  wrap(async (req, _res, next) => {
+    const u = await adminFromReq(req);
+    if (!u) throw new HttpError(401, 'Phiên quản trị đã hết hạn, vui lòng đăng nhập lại.');
+    req.adminUser = u;
+    if (u.role !== 'admin' && !GRADER_ALLOWED.some(([m, p]) => req.method === m && req.path === p))
+      throw new HttpError(403, 'Tài khoản Giám khảo chỉ được chấm bài tự luận.');
+    next();
+  })
+);
 
 /* ------------------------------------------------------------------ */
 /* Admin: cấu hình, logo, công trình                                   */
@@ -533,6 +579,8 @@ function cleanSettings(input, prev) {
   text('intro', 5000);
   text('rules', 5000);
   text('finishMessage', 2000);
+  text('emailSubject', 300);
+  text('emailBody', 5000);
   for (const k of ['openingAt', 'closingAt']) {
     if (input[k] === undefined) continue;
     const v = String(input[k] || '').trim();
@@ -577,6 +625,7 @@ app.put(
   wrap(async (req, res) => {
     const s = cleanSettings(req.body || {}, await getSettings());
     await saveSettings(s);
+    await audit(req, 'settings_save', { title: s.title, active: s.active });
     res.json({ settings: s, status: examStatus(s), maxScore: maxScoreOf(s) });
   })
 );
@@ -593,6 +642,7 @@ app.put(
     if (!m) throw new HttpError(400, 'Logo phải là ảnh PNG, JPEG, WEBP hoặc SVG.');
     if (m[2].length > 700_000) throw new HttpError(400, 'Logo quá lớn (tối đa ~500KB).');
     await saveLogo({ mime: m[1], data: m[2] });
+    await audit(req, 'logo_change', null);
     res.json({ ok: true, hasLogo: true });
   })
 );
@@ -616,6 +666,7 @@ app.post(
     if (!name) throw new HttpError(400, 'Vui lòng nhập tên công trình.');
     try {
       const r = await q(`INSERT INTO projects(name) VALUES ($1) RETURNING *`, [name]);
+      await audit(req, 'project_add', { name });
       res.json({ project: r.rows[0] });
     } catch (e) {
       if (e.code === '23505') throw new HttpError(409, 'Công trình đã tồn tại.');
@@ -642,6 +693,7 @@ app.patch(
     if (!fields.length) throw new HttpError(400, 'Không có thay đổi.');
     const r = await q(`UPDATE projects SET ${fields.join(', ')} WHERE id=$1 RETURNING *`, vals);
     if (!r.rowCount) throw new HttpError(404, 'Không tìm thấy công trình.');
+    await audit(req, 'project_update', { name: r.rows[0].name, active: r.rows[0].active });
     res.json({ project: r.rows[0] });
   })
 );
@@ -652,6 +704,7 @@ app.delete(
     const used = (await q(`SELECT count(*)::int AS n FROM exam_attempts WHERE project_id=$1`, [req.params.id])).rows[0].n;
     if (used) throw new HttpError(409, 'Công trình đã có bài thi, chỉ có thể ẩn.');
     await q(`DELETE FROM projects WHERE id=$1`, [req.params.id]);
+    await audit(req, 'project_delete', { id: req.params.id });
     res.json({ ok: true });
   })
 );
@@ -691,6 +744,7 @@ app.post(
         [JSON.stringify(participants)]
       );
     });
+    await audit(req, 'participants_import', { count: participants.length });
     res.json({ ok: true, count: participants.length, invalid, duplicates });
   })
 );
@@ -724,14 +778,16 @@ app.post(
         [JSON.stringify(rows)]
       );
     }
+    await audit(req, 'participants_add', { added });
     res.json({ ok: true, added, duplicates, invalid });
   })
 );
 
 app.delete(
   '/api/admin/participants',
-  wrap(async (_req, res) => {
+  wrap(async (req, res) => {
     await q(`DELETE FROM participants`);
+    await audit(req, 'participants_delete', null);
     res.json({ ok: true });
   })
 );
@@ -834,6 +890,7 @@ app.post(
        VALUES ($1,$2,$3,$4,$5,$6,$7,(SELECT COALESCE(max(position),0)+1 FROM questions)) RETURNING *`,
       [x.type, x.text, JSON.stringify(x.options), JSON.stringify(x.correct), x.reference, x.topic, x.difficulty]
     );
+    await audit(req, 'question_add', { id: r.rows[0].id, text: r.rows[0].text.slice(0, 120) });
     res.json({ question: r.rows[0] });
   })
 );
@@ -858,6 +915,7 @@ app.put(
       [id, x.type, x.text, JSON.stringify(x.options), JSON.stringify(x.correct), x.reference, x.topic, x.difficulty]
     );
     if (locked && JSON.stringify(x.correct) !== JSON.stringify(cur.correct)) regraded = await regradeQuestion(id);
+    await audit(req, 'question_edit', { id, text: cur.text.slice(0, 120), regraded });
     res.json({ question: r.rows[0], regraded });
   })
 );
@@ -868,6 +926,7 @@ app.delete(
     if ((await attemptCount()) > 0) throw new HttpError(409, 'Đã có bài làm: không xóa được câu hỏi, hãy dùng "Ẩn".');
     const r = await q(`DELETE FROM questions WHERE id=$1`, [Number(req.params.id)]);
     if (!r.rowCount) throw new HttpError(404, 'Không tìm thấy câu hỏi.');
+    await audit(req, 'question_delete', { id: Number(req.params.id) });
     res.json({ ok: true });
   })
 );
@@ -923,6 +982,7 @@ app.post(
       );
     });
     const total = (await q(`SELECT count(*)::int AS n FROM questions`)).rows[0].n;
+    await audit(req, 'questions_import', { saved: questions.length, mode });
     res.json({ ok: true, saved: questions.length, total, summary, mode });
   })
 );
@@ -933,6 +993,7 @@ app.patch(
     // Ẩn / hiện chỉ ảnh hưởng các lượt rút đề sau, bài đã làm vẫn chấm theo câu gốc
     const r = await q(`UPDATE questions SET active=$2 WHERE id=$1 RETURNING *`, [Number(req.params.id), !!req.body?.active]);
     if (!r.rowCount) throw new HttpError(404, 'Không tìm thấy câu hỏi.');
+    await audit(req, 'question_toggle', { id: r.rows[0].id, active: r.rows[0].active });
     res.json({ question: r.rows[0] });
   })
 );
@@ -1003,14 +1064,26 @@ app.get(
   })
 );
 
+/** Nạp một bài làm – đợt hiện tại hoặc đợt đã lưu trữ (query.round) */
+async function loadAttemptAny(query) {
+  const id = String(query.id || '');
+  if (query.round) {
+    const { round, qmap, names } = await loadRound(query.round);
+    const a = (await roundAttempts(round.id, id))[0];
+    if (!a) throw new HttpError(404, 'Không tìm thấy bài làm.');
+    return { a, qmap, names, events: await roundEvents(round.id, [a.id]) };
+  }
+  const a = (await q(`SELECT * FROM exam_attempts WHERE id=$1`, [id]).catch(() => ({ rows: [] }))).rows[0];
+  if (!a) throw new HttpError(404, 'Không tìm thấy bài làm.');
+  const [qmap, names, events] = await Promise.all([questionMap(), projectNames(), loadEvents([a.id])]);
+  return { a, qmap, names, events };
+}
+
 /** Chi tiết một bài (có đáp án đúng, nhật ký webcam) */
 app.get(
   '/api/admin/attempt',
   wrap(async (req, res) => {
-    const id = String(req.query.id || '');
-    const a = (await q(`SELECT * FROM exam_attempts WHERE id=$1`, [id]).catch(() => ({ rows: [] }))).rows[0];
-    if (!a) throw new HttpError(404, 'Không tìm thấy bài làm.');
-    const [qmap, names, events] = await Promise.all([questionMap(), projectNames(), loadEvents([a.id])]);
+    const { a, qmap, names, events } = await loadAttemptAny(req.query);
     const questions = a.question_ids
       .map((qid) => qmap.get(qid))
       .filter(Boolean)
@@ -1057,6 +1130,7 @@ app.post(
       scores[qid] = round2(n);
     }
     const done = await regrade(a.id, scores);
+    await audit(req, 'grade_essay', { name: done.name, email: done.email, scores });
     res.json({ attempt: attemptSummary(done, qmap, (await projectNames()).get(done.project_id)) });
   })
 );
@@ -1064,10 +1138,7 @@ app.post(
 app.get(
   '/api/admin/attempt-pdf',
   wrap(async (req, res) => {
-    const id = String(req.query.id || '');
-    const a = (await q(`SELECT * FROM exam_attempts WHERE id=$1`, [id]).catch(() => ({ rows: [] }))).rows[0];
-    if (!a) throw new HttpError(404, 'Không tìm thấy bài làm.');
-    const [qmap, names, events, logo] = await Promise.all([questionMap(), projectNames(), loadEvents([a.id]), getLogo()]);
+    const [{ a, qmap, names, events }, logo] = await Promise.all([loadAttemptAny(req.query), getLogo()]);
     const pdf = await renderAttemptPdf({
       attempt: a,
       qmap,
@@ -1292,6 +1363,7 @@ app.post(
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new HttpError(400, 'Mã bài làm không hợp lệ.');
     const a = await submitAttempt(id, 'admin');
     if (!a) throw new HttpError(404, 'Không tìm thấy bài làm.');
+    await audit(req, 'force_submit', { name: a.name, email: a.email });
     res.json({ ok: true });
   })
 );
@@ -1302,10 +1374,11 @@ app.post(
 
 app.get(
   '/api/admin/export',
-  wrap(async (_req, res) => {
+  wrap(async (req, res) => {
     const stamp = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 16).replace(/[-:T]/g, '');
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="ho_so_ket_qua_${stamp}.zip"`);
+    await audit(req, 'export_zip');
     await writeResultsZip(res);
   })
 );
@@ -1320,15 +1393,378 @@ app.post(
     if (running) throw new HttpError(409, `Còn ${running} bài chưa nộp. Hãy "Chốt bài hết hạn" trước.`);
     if (req.body?.confirm !== true) throw new HttpError(400, 'Thiếu xác nhận xóa.');
     const r = await q(`DELETE FROM exam_attempts`);
+    await audit(req, 'clear_results', { deleted: r.rowCount });
     res.json({ ok: true, deleted: r.rowCount });
   })
 );
 
 app.post(
   '/api/admin/reconcile',
-  wrap(async (_req, res) => {
+  wrap(async (req, res) => {
     const n = await finalizeOverdue('finalized');
+    await audit(req, 'reconcile', { finalized: n });
     res.json({ ok: true, finalized: n });
+  })
+);
+
+/* ------------------------------------------------------------------ */
+/* Đợt thi: kết thúc & lưu trữ, xem lại đợt cũ                          */
+/* ------------------------------------------------------------------ */
+
+function roundStats(attempts) {
+  let submitted = 0, pass = 0, fail = 0, pending = 0, flagged = 0, sum = 0, scored = 0;
+  for (const a of attempts) {
+    if (!a.submitted_at) continue;
+    submitted++;
+    if (a.result === 'pass') pass++;
+    else if (a.result === 'fail') fail++;
+    else pending++;
+    if (flagsOf(a).length) flagged++;
+    const v = to10(a.total_score, a.max_score);
+    if (v != null && a.result !== 'pending') {
+      sum += v;
+      scored++;
+    }
+  }
+  return {
+    total: attempts.length,
+    submitted,
+    pass,
+    fail,
+    pending,
+    flagged,
+    avgScore10: scored ? round2(sum / scored) : null,
+    passRate: pass + fail ? round2((pass / (pass + fail)) * 100) : null,
+  };
+}
+
+async function loadRound(id) {
+  const r = (await q(`SELECT * FROM exam_rounds WHERE id=$1`, [Number(id) || 0])).rows[0];
+  if (!r) throw new HttpError(404, 'Không tìm thấy đợt thi.');
+  const qmap = new Map(r.questions.map((x) => [x.id, x]));
+  const names = new Map(r.projects.map((p) => [p.id, p.name]));
+  return { round: r, qmap, names };
+}
+
+async function roundAttempts(roundId, attemptId = null) {
+  const r = attemptId
+    ? await q(`SELECT data FROM archived_attempts WHERE round_id=$1 AND id=$2`, [roundId, attemptId]).catch(() => ({ rows: [] }))
+    : await q(`SELECT data FROM archived_attempts WHERE round_id=$1`, [roundId]);
+  return r.rows
+    .map((x) => x.data)
+    .sort((a, b) => (a.seq ?? 1e9) - (b.seq ?? 1e9) || String(a.started_at).localeCompare(String(b.started_at)));
+}
+
+async function roundEvents(roundId, ids) {
+  if (!ids.length) return new Map();
+  const r = await q(
+    `SELECT attempt_id, type, detail, snapshot, created_at FROM archived_events WHERE round_id=$1 AND attempt_id = ANY($2::uuid[]) ORDER BY created_at`,
+    [roundId, ids]
+  );
+  const m = new Map();
+  for (const e of r.rows) {
+    if (!m.has(e.attempt_id)) m.set(e.attempt_id, []);
+    m.get(e.attempt_id).push(e);
+  }
+  return m;
+}
+
+app.post(
+  '/api/admin/rounds/archive',
+  wrap(async (req, res) => {
+    const s = await getSettings();
+    const st = examStatus(s);
+    if (st === 'open' || st === 'upcoming') throw new HttpError(409, 'Chỉ lưu trữ được khi kỳ thi đã đóng (tắt "Mở kỳ thi" hoặc đã qua giờ đóng).');
+    const running = (await q(`SELECT count(*)::int AS n FROM exam_attempts WHERE submitted_at IS NULL`)).rows[0].n;
+    if (running) throw new HttpError(409, `Còn ${running} bài chưa nộp. Hãy "Chốt bài hết hạn" trước.`);
+    const name = String(req.body?.name || '').trim().slice(0, 200) || `${s.title} (${fmtVN(new Date())})`;
+    const clearParticipants = !!req.body?.clearParticipants;
+    const out = await tx(async (c) => {
+      const att = (await c.query(`SELECT * FROM exam_attempts`)).rows;
+      if (!att.length) throw new HttpError(400, 'Chưa có bài làm nào để lưu trữ.');
+      const ids = [...new Set(att.flatMap((a) => a.question_ids))];
+      const qs = (await c.query(`SELECT id, type, text, options, correct, reference, active, position, topic, difficulty FROM questions WHERE id = ANY($1::int[])`, [ids])).rows;
+      const projects = (await c.query(`SELECT id, name FROM projects`)).rows;
+      const participants = (await c.query(`SELECT count(*)::int AS n FROM participants`)).rows[0].n;
+      const opened = att.reduce((m, a) => (!m || a.started_at < m ? a.started_at : m), null);
+      const r = await c.query(
+        `INSERT INTO exam_rounds(name, opened_at, archived_by, settings, questions, projects, participants, stats)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [name, opened, req.adminUser.username, s, JSON.stringify(qs), JSON.stringify(projects), participants, roundStats(att)]
+      );
+      const rid = r.rows[0].id;
+      await c.query(`INSERT INTO archived_attempts(id, round_id, data) SELECT a.id, $1, to_jsonb(a) FROM exam_attempts a`, [rid]);
+      await c.query(
+        `INSERT INTO archived_events(round_id, attempt_id, type, detail, snapshot, created_at)
+         SELECT $1, attempt_id, type, detail, snapshot, created_at FROM exam_events`,
+        [rid]
+      );
+      await c.query(`DELETE FROM exam_attempts`);
+      if (clearParticipants) await c.query(`DELETE FROM participants`);
+      return { id: rid, attempts: att.length };
+    });
+    await audit(req, 'round_archive', { id: out.id, name, attempts: out.attempts, clearParticipants });
+    res.json({ ok: true, ...out, name });
+  })
+);
+
+app.get(
+  '/api/admin/rounds',
+  wrap(async (_req, res) => {
+    const r = await q(`SELECT id, name, opened_at, archived_at, archived_by, participants, stats, settings->>'title' AS title FROM exam_rounds ORDER BY archived_at DESC`);
+    res.json({ rounds: r.rows });
+  })
+);
+
+app.get(
+  '/api/admin/rounds/:id',
+  wrap(async (req, res) => {
+    const { round, qmap, names } = await loadRound(req.params.id);
+    const rows = (await roundAttempts(round.id)).map((a) => ({ ...attemptSummary(a, qmap, names.get(a.project_id)), flags: flagsOf(a) }));
+    const { questions: _q, settings, ...meta } = round;
+    res.json({ round: { ...meta, title: settings.title, settings }, rows });
+  })
+);
+
+app.get(
+  '/api/admin/rounds/:id/export',
+  wrap(async (req, res) => {
+    const { round, qmap, names } = await loadRound(req.params.id);
+    const attempts = await roundAttempts(round.id);
+    const events = await roundEvents(
+      round.id,
+      attempts.map((a) => a.id)
+    );
+    await audit(req, 'round_export', { id: round.id, name: round.name });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="ho_so_dot_${round.id}.zip"`);
+    await writeResultsZip(res, { attempts, qmap, projectName: names, events, title: round.settings.title });
+  })
+);
+
+app.delete(
+  '/api/admin/rounds/:id',
+  wrap(async (req, res) => {
+    const { round } = await loadRound(req.params.id);
+    if (req.body?.confirm !== true) throw new HttpError(400, 'Thiếu xác nhận xóa.');
+    await q(`DELETE FROM exam_rounds WHERE id=$1`, [round.id]);
+    await audit(req, 'round_delete', { id: round.id, name: round.name });
+    res.json({ ok: true });
+  })
+);
+
+/* ------------------------------------------------------------------ */
+/* Tài khoản quản trị / giám khảo                                      */
+/* ------------------------------------------------------------------ */
+
+const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
+
+app.get(
+  '/api/admin/users',
+  wrap(async (_req, res) => {
+    const r = await q(`SELECT id, username, name, role, active, created_at, last_login_at FROM admin_users ORDER BY role, username`);
+    res.json({ users: r.rows, roles: ROLE_LABEL });
+  })
+);
+
+app.post(
+  '/api/admin/users',
+  wrap(async (req, res) => {
+    const username = String(req.body?.username || '').trim().toLowerCase();
+    const name = String(req.body?.name || '').trim().slice(0, 100);
+    const role = req.body?.role === 'admin' ? 'admin' : 'grader';
+    const password = String(req.body?.password || '');
+    if (!USERNAME_RE.test(username) || username === 'admin')
+      throw new HttpError(400, 'Tên đăng nhập 3–32 ký tự (chữ thường, số, . _ -), không dùng "admin".');
+    if (!name) throw new HttpError(400, 'Vui lòng nhập họ tên.');
+    if (password.length < 8) throw new HttpError(400, 'Mật khẩu tối thiểu 8 ký tự.');
+    try {
+      const r = await q(
+        `INSERT INTO admin_users(username, name, role, password_hash) VALUES ($1,$2,$3,$4) RETURNING id, username, name, role, active`,
+        [username, name, role, hashPassword(password)]
+      );
+      await audit(req, 'user_add', { username, role });
+      res.json({ user: r.rows[0] });
+    } catch (e) {
+      if (e.code === '23505') throw new HttpError(409, 'Tên đăng nhập đã tồn tại.');
+      throw e;
+    }
+  })
+);
+
+app.patch(
+  '/api/admin/users/:id',
+  wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const cur = (await q(`SELECT * FROM admin_users WHERE id=$1`, [id])).rows[0];
+    if (!cur) throw new HttpError(404, 'Không tìm thấy tài khoản.');
+    const b = req.body || {};
+    const name = b.name !== undefined ? String(b.name).trim().slice(0, 100) || cur.name : cur.name;
+    const role = b.role !== undefined ? (b.role === 'admin' ? 'admin' : 'grader') : cur.role;
+    const active = b.active !== undefined ? !!b.active : cur.active;
+    let hash = cur.password_hash;
+    if (b.password !== undefined && b.password !== '') {
+      if (String(b.password).length < 8) throw new HttpError(400, 'Mật khẩu tối thiểu 8 ký tự.');
+      hash = hashPassword(b.password);
+    }
+    const r = await q(
+      `UPDATE admin_users SET name=$2, role=$3, active=$4, password_hash=$5 WHERE id=$1 RETURNING id, username, name, role, active`,
+      [id, name, role, active, hash]
+    );
+    await audit(req, 'user_update', { username: cur.username, role, active, passwordChanged: hash !== cur.password_hash });
+    res.json({ user: r.rows[0] });
+  })
+);
+
+app.delete(
+  '/api/admin/users/:id',
+  wrap(async (req, res) => {
+    const r = await q(`DELETE FROM admin_users WHERE id=$1 RETURNING username`, [Number(req.params.id)]);
+    if (!r.rowCount) throw new HttpError(404, 'Không tìm thấy tài khoản.');
+    await audit(req, 'user_delete', { username: r.rows[0].username });
+    res.json({ ok: true });
+  })
+);
+
+/* ------------------------------------------------------------------ */
+/* Nhật ký thao tác                                                    */
+/* ------------------------------------------------------------------ */
+
+app.get(
+  '/api/admin/audit',
+  wrap(async (req, res) => {
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+    const where = [];
+    const params = [];
+    if (req.query.action) {
+      params.push(String(req.query.action));
+      where.push(`action = $${params.length}`);
+    }
+    if (req.query.actor) {
+      params.push(String(req.query.actor));
+      where.push(`actor = $${params.length}`);
+    }
+    if (req.query.before) {
+      params.push(Number(req.query.before));
+      where.push(`id < $${params.length}`);
+    }
+    params.push(limit);
+    const r = await q(
+      `SELECT id, at, actor, role, action, detail, ip FROM audit_log ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT $${params.length}`,
+      params
+    );
+    const actors = (await q(`SELECT DISTINCT actor FROM audit_log WHERE actor <> '' ORDER BY actor`)).rows.map((x) => x.actor);
+    res.json({ rows: r.rows.map((x) => ({ ...x, label: AUDIT_LABEL[x.action] || x.action })), actions: AUDIT_LABEL, actors });
+  })
+);
+
+/* ------------------------------------------------------------------ */
+/* Email kết quả                                                       */
+/* ------------------------------------------------------------------ */
+
+const EMAIL_ELIGIBLE = `submitted_at IS NOT NULL AND result IN ('pass','fail')`;
+
+async function emailVars(a) {
+  const s = await getSettings();
+  return {
+    ho_ten: a.name,
+    email: a.email,
+    ky_thi: a.settings_snapshot?.title || s.title,
+    don_vi: s.organization || '',
+    ket_qua: RESULT_LABEL[a.result] || '',
+    thang_10: fmtNum10(to10(a.total_score, a.max_score)),
+    tong_diem: fmtNum10(a.total_score),
+    diem_toi_da: fmtNum10(a.max_score),
+    ngay_nop: fmtVN(a.submitted_at),
+  };
+}
+
+function fmtNum10(n) {
+  return n == null ? '—' : String(round2(Number(n))).replace('.', ',');
+}
+
+app.get(
+  '/api/admin/email/status',
+  wrap(async (_req, res) => {
+    const cfg = mailConfig();
+    const r = (
+      await q(`SELECT count(*)::int AS eligible, count(result_emailed_at)::int AS sent FROM exam_attempts WHERE ${EMAIL_ELIGIBLE}`)
+    ).rows[0];
+    const pending = (await q(`SELECT count(*)::int AS n FROM exam_attempts WHERE submitted_at IS NOT NULL AND result = 'pending'`)).rows[0].n;
+    res.json({ configured: cfg.ok, provider: cfg.provider, from: cfg.from, eligible: r.eligible, sent: r.sent, unsent: r.eligible - r.sent, waitingGrade: pending });
+  })
+);
+
+app.post(
+  '/api/admin/email/preview',
+  wrap(async (req, res) => {
+    const s = await getSettings();
+    const a = (await q(`SELECT * FROM exam_attempts WHERE ${EMAIL_ELIGIBLE} ORDER BY submitted_at LIMIT 1`)).rows[0];
+    const vars = a
+      ? await emailVars(a)
+      : { ho_ten: 'Nguyễn Văn A', email: 'nguyenvana@' + EMAIL_DOMAIN, ky_thi: s.title, don_vi: s.organization, ket_qua: 'ĐẠT', thang_10: '8,5', tong_diem: '8,5', diem_toi_da: '10', ngay_nop: fmtVN(new Date()) };
+    const subject = fillTemplate(req.body?.subject ?? s.emailSubject, vars);
+    const body = fillTemplate(req.body?.body ?? s.emailBody, vars);
+    res.json({ subject, body, sample: !a });
+  })
+);
+
+app.post(
+  '/api/admin/email/test',
+  wrap(async (req, res) => {
+    const to = normalizeEmail(req.body?.to);
+    if (!isValidEmail(to)) throw new HttpError(400, 'Email nhận thử không hợp lệ.');
+    const s = await getSettings();
+    const vars = { ho_ten: 'Người nhận thử', email: to, ky_thi: s.title, don_vi: s.organization, ket_qua: 'ĐẠT', thang_10: '8,5', tong_diem: '8,5', diem_toi_da: '10', ngay_nop: fmtVN(new Date()) };
+    try {
+      await sendMail({ to, subject: '[Thử] ' + fillTemplate(s.emailSubject, vars), text: fillTemplate(s.emailBody, vars) });
+    } catch (e) {
+      throw new HttpError(502, `Gửi thất bại: ${e.message}`);
+    }
+    await audit(req, 'email_test', { to });
+    res.json({ ok: true });
+  })
+);
+
+app.post(
+  '/api/admin/email/send',
+  wrap(async (req, res) => {
+    if (!mailConfig().ok) throw new HttpError(400, 'Chưa cấu hình gửi email trên máy chủ.');
+    const s = await getSettings();
+    const skip = (Array.isArray(req.body?.skip) ? req.body.skip : []).filter((x) => /^[0-9a-f-]{36}$/i.test(String(x)));
+    const batch = (
+      await q(
+        `SELECT * FROM exam_attempts WHERE ${EMAIL_ELIGIBLE} AND result_emailed_at IS NULL AND NOT (id = ANY($1::uuid[])) ORDER BY seq NULLS LAST, submitted_at LIMIT 20`,
+        [skip]
+      )
+    ).rows;
+    let sent = 0;
+    const failed = [];
+    for (const a of batch) {
+      const vars = await emailVars(a);
+      try {
+        await sendMail({ to: a.email, subject: fillTemplate(s.emailSubject, vars), text: fillTemplate(s.emailBody, vars) });
+        await q(`UPDATE exam_attempts SET result_emailed_at=now() WHERE id=$1`, [a.id]);
+        sent++;
+      } catch (e) {
+        failed.push({ id: a.id, email: a.email, error: e.message.slice(0, 200) });
+      }
+    }
+    const remaining = (
+      await q(`SELECT count(*)::int AS n FROM exam_attempts WHERE ${EMAIL_ELIGIBLE} AND result_emailed_at IS NULL AND NOT (id = ANY($1::uuid[]))`, [
+        [...skip, ...failed.map((f) => f.id)],
+      ])
+    ).rows[0].n;
+    if (sent || failed.length) await audit(req, 'email_send', { sent, failed: failed.length });
+    res.json({ sent, failed, remaining });
+  })
+);
+
+app.post(
+  '/api/admin/email/reset',
+  wrap(async (_req, res) => {
+    const r = await q(`UPDATE exam_attempts SET result_emailed_at=NULL WHERE result_emailed_at IS NOT NULL`);
+    res.json({ ok: true, reset: r.rowCount });
   })
 );
 

@@ -1,8 +1,11 @@
-import { StrictMode, useEffect, useState } from 'react';
+import { lazy, StrictMode, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import CandidateApp from './candidate/CandidateApp.jsx';
-import AdminApp from './admin/AdminApp.jsx';
+import { Loading } from './lib/ui.jsx';
+
+// Phần quản trị tách riêng – thí sinh không phải tải
+const AdminApp = lazy(() => import('./admin/AdminApp.jsx'));
 
 function useHashRoute() {
   const read = () => (window.location.hash.replace(/^#/, '') || '/').split('?')[0];
@@ -17,7 +20,13 @@ function useHashRoute() {
 
 function App() {
   const route = useHashRoute();
-  return route.startsWith('/admin') ? <AdminApp /> : <CandidateApp />;
+  return route.startsWith('/admin') ? (
+    <Suspense fallback={<Loading />}>
+      <AdminApp />
+    </Suspense>
+  ) : (
+    <CandidateApp />
+  );
 }
 
 createRoot(document.getElementById('root')).render(

@@ -9,6 +9,9 @@ import DashboardTab from './DashboardTab.jsx';
 import ArchiveTab from './ArchiveTab.jsx';
 import OverviewTab from './OverviewTab.jsx';
 import LiveTab from './LiveTab.jsx';
+import RoundsTab from './RoundsTab.jsx';
+import UsersTab from './UsersTab.jsx';
+import AuditTab from './AuditTab.jsx';
 
 const TABS = [
   { id: 'overview', label: 'Tổng quan', icon: 'home', C: OverviewTab, desc: 'Tình hình kỳ thi và việc cần làm' },
@@ -18,8 +21,12 @@ const TABS = [
   { id: 'questions', label: 'Câu hỏi', icon: 'book', C: QuestionsTab, desc: 'Ngân hàng câu hỏi' },
   { id: 'grading', label: 'Chấm tự luận', icon: 'pen', C: GradingTab, desc: 'Chấm điểm các câu tự luận' },
   { id: 'dashboard', label: 'Bài làm & thống kê', icon: 'chart', C: DashboardTab, desc: 'Kết quả, bộ lọc và biểu đồ' },
-  { id: 'archive', label: 'Hồ sơ kết quả', icon: 'archive', C: ArchiveTab, desc: 'Xuất ZIP, chốt bài, dọn dữ liệu' },
+  { id: 'archive', label: 'Hồ sơ kết quả', icon: 'archive', C: ArchiveTab, desc: 'Xuất ZIP, chốt bài, gửi email, kết thúc đợt' },
+  { id: 'rounds', label: 'Lịch sử đợt thi', icon: 'history', C: RoundsTab, desc: 'Các đợt thi đã kết thúc và lưu trữ' },
+  { id: 'users', label: 'Tài khoản', icon: 'shield', C: UsersTab, desc: 'Tài khoản quản trị và giám khảo' },
+  { id: 'audit', label: 'Nhật ký', icon: 'log', C: AuditTab, desc: 'Ai đã làm gì, lúc nào' },
 ];
+const GRADER_TABS = ['grading'];
 const TAB_KEY = 'tmn-admin-tab';
 
 function tabFromHash() {
@@ -59,9 +66,11 @@ export default function AdminApp() {
   }, []);
 
   if (!me) return <Loading />;
-  if (!me.admin) return <Login onDone={() => setMe({ ...me, admin: true })} />;
+  if (!me.admin) return <Login onDone={(user) => setMe({ ...me, admin: true, user })} />;
 
-  const cur = TABS.find((t) => t.id === tab) || TABS[0];
+  const role = me.user?.role || 'admin';
+  const tabs = role === 'admin' ? TABS : TABS.filter((t) => GRADER_TABS.includes(t.id));
+  const cur = tabs.find((t) => t.id === tab) || tabs[0];
   const Current = cur.C;
   const choose = (id) => {
     setTab(id);
@@ -91,12 +100,12 @@ export default function AdminApp() {
           </div>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.id}
               onClick={() => choose(t.id)}
               className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
-                tab === t.id ? 'bg-white text-blue-800 shadow-md' : 'text-white/85 hover:bg-white/10 hover:text-white'
+                cur.id === t.id ? 'bg-white text-blue-800 shadow-md' : 'text-white/85 hover:bg-white/10 hover:text-white'
               }`}
             >
               <Icon name={t.icon} />
@@ -105,6 +114,15 @@ export default function AdminApp() {
           ))}
         </nav>
         <div className="space-y-1 border-t border-white/15 px-3 py-3">
+          <div className="mb-1 flex items-center gap-3 px-3 py-1.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-bold">
+              {(me.user?.name || 'A').trim().charAt(0).toUpperCase()}
+            </span>
+            <span className="min-w-0 text-xs leading-tight">
+              <span className="block truncate font-semibold">{me.user?.name}</span>
+              <span className="text-white/70">{role === 'admin' ? 'Quản trị' : 'Giám khảo'} · {me.user?.username}</span>
+            </span>
+          </div>
           <a
             href="#/"
             target="_blank"
@@ -135,12 +153,12 @@ export default function AdminApp() {
           </button>
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-2">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.id}
               onClick={() => choose(t.id)}
               className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                tab === t.id ? 'bg-white text-blue-800' : 'text-white/85 hover:bg-white/10'
+                cur.id === t.id ? 'bg-white text-blue-800' : 'text-white/85 hover:bg-white/10'
               }`}
             >
               <Icon name={t.icon} className="h-4 w-4" />
@@ -169,6 +187,7 @@ export default function AdminApp() {
 
 function Login({ onDone }) {
   const [pw, setPw] = useState('');
+  const [user, setUser] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   return (
@@ -180,8 +199,8 @@ function Login({ onDone }) {
           setBusy(true);
           setErr('');
           try {
-            await api('/admin/login', { method: 'POST', body: { password: pw } });
-            onDone();
+            const r = await api('/admin/login', { method: 'POST', body: { username: user, password: pw } });
+            onDone(r.user);
           } catch (ex) {
             setErr(ex.message);
           } finally {
@@ -193,8 +212,11 @@ function Login({ onDone }) {
           <Logo className="h-20" />
         </div>
         <h1 className="text-brand text-center text-xl font-bold">Đăng nhập quản trị</h1>
+        <Field label="Tên đăng nhập" hint="Để trống nếu dùng mật khẩu quản trị chính">
+          <input className={inputCls} value={user} onChange={(e) => setUser(e.target.value)} autoComplete="username" placeholder="admin" autoFocus />
+        </Field>
         <Field label="Mật khẩu">
-          <input className={inputCls} type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus />
+          <input className={inputCls} type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" />
         </Field>
         <Notice tone="error">{err}</Notice>
         <Button type="submit" className="w-full" disabled={busy || !pw}>
