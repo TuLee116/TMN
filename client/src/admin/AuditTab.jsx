@@ -3,7 +3,7 @@ import { api } from '../lib/api.js';
 import { fmtDateTime } from '../lib/format.js';
 import { Badge, Button, Card, Icon, inputCls, Loading, Notice, Spinner, Table } from '../lib/ui.jsx';
 
-const DANGER = new Set(['clear_results', 'round_delete', 'user_delete', 'question_delete', 'participants_delete', 'login_failed', 'force_submit']);
+const DANGER = new Set(['attempt_reset', 'clear_results', 'round_delete', 'user_delete', 'question_delete', 'participants_delete', 'login_failed', 'force_submit']);
 const PAGE = 100;
 
 /** Diễn giải chi tiết nhật ký thành câu ngắn */
@@ -16,6 +16,10 @@ function describe(r) {
       return `${d.name || ''} (${d.email || ''})`;
     case 'force_submit':
       return `${d.name || ''} (${d.email || ''})`;
+    case 'attempt_reset':
+      return `${d.name || ''} (${d.email || ''}) · lượt cũ: ${
+        d.status === 'submitted' ? `${d.score10 ?? '—'}/10 ${d.result === 'pass' ? 'ĐẠT' : d.result === 'fail' ? 'KHÔNG ĐẠT' : 'chờ chấm'}` : 'đang làm'
+      } · Lý do: ${d.reason || ''}`;
     case 'questions_import':
       return `${d.saved} câu · ${d.mode === 'append' ? 'thêm vào' : 'thay thế toàn bộ'}`;
     case 'question_edit':
