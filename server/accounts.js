@@ -45,6 +45,7 @@ export const AUDIT_LABEL = {
   question_toggle: 'Ẩn / hiện câu hỏi',
   grade_essay: 'Chấm tự luận',
   force_submit: 'Thu bài thí sinh',
+  attempt_reset: 'Cho thi lại',
   reconcile: 'Chốt bài hết hạn',
   export_zip: 'Tải ZIP hồ sơ',
   clear_results: 'Xóa dữ liệu bài làm',

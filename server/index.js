@@ -1449,6 +1449,39 @@ app.post(
   })
 );
 
+/** Cho thí sinh thi lại: xóa lượt thi hiện tại, lưu tóm tắt lượt cũ vào nhật ký */
+app.post(
+  '/api/admin/attempts/reset',
+  wrap(async (req, res) => {
+    const id = String(req.body?.id || '');
+    const reason = String(req.body?.reason || '').trim().slice(0, 500);
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new HttpError(400, 'Mã bài làm không hợp lệ.');
+    if (!reason) throw new HttpError(400, 'Vui lòng nhập lý do cho thi lại.');
+    const a = (await q(`SELECT * FROM exam_attempts WHERE id=$1`, [id])).rows[0];
+    if (!a) throw new HttpError(404, 'Không tìm thấy bài làm.');
+    await q(`DELETE FROM exam_attempts WHERE id=$1`, [id]);
+    await audit(req, 'attempt_reset', {
+      reason,
+      name: a.name,
+      email: a.email,
+      status: a.submitted_at ? 'submitted' : 'in_progress',
+      startedAt: a.started_at,
+      submittedAt: a.submitted_at,
+      submitReason: a.submit_reason,
+      totalScore: a.total_score,
+      maxScore: a.max_score,
+      score10: to10(a.total_score, a.max_score),
+      result: a.result,
+      webcamWarnings: a.webcam_warnings,
+      tabViolation: a.tab_violation,
+      questionIds: a.question_ids,
+      answers: a.answers,
+      essayScores: a.essay_scores,
+    });
+    res.json({ ok: true, email: a.email });
+  })
+);
+
 app.post(
   '/api/admin/reconcile',
   wrap(async (req, res) => {

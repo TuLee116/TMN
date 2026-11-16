@@ -135,6 +135,8 @@ export default function ArchiveTab({ goto }) {
         </section>
       </div>
 
+      <ResetCard onDone={() => load().catch(() => {})} />
+
       <EmailCard goto={goto} />
 
       <section className="rounded-xl border border-red-200 bg-white">
@@ -249,6 +251,115 @@ export default function ArchiveTab({ goto }) {
         </label>
       </Modal>
     </div>
+  );
+}
+
+const ST_TONE = { in_progress: 'blue', overdue: 'amber', submitted: 'green', auto_submitted: 'green' };
+
+function ResetCard({ onDone }) {
+  const [rows, setRows] = useState(null);
+  const [kw, setKw] = useState('');
+  const [sel, setSel] = useState(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const load = useCallback(async () => {
+    const r = await api('/admin/participation');
+    setRows(r.rows.filter((x) => x.attempt_id));
+  }, []);
+  useEffect(() => {
+    load().catch((e) => setMsg({ tone: 'error', text: e.message }));
+  }, [load]);
+
+  async function reset() {
+    setBusy(true);
+    try {
+      await api('/admin/attempts/reset', { method: 'POST', body: { id: sel.attempt_id, reason } });
+      setMsg({ tone: 'success', text: `Đã làm mới lượt thi của ${sel.name || sel.email}. Thí sinh có thể vào làm bài lại (lượt cũ lưu trong Nhật ký).` });
+      setSel(null);
+      setReason('');
+      await load();
+      onDone?.();
+    } catch (e) {
+      setMsg({ tone: 'error', text: e.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const k = kw.trim().toLowerCase();
+  const shown = (rows || []).filter((r) => !k || String(r.seq ?? '') === k || (r.name || '').toLowerCase().includes(k) || r.email.includes(k));
+
+  return (
+    <Card
+      title={
+        <span className="flex items-center gap-2">
+          <Icon name="refresh" /> Cho thi lại (làm mới lượt thi)
+        </span>
+      }
+    >
+      <p className="mb-3 text-sm text-slate-600">
+        Dùng khi thí sinh gặp sự cố (mất mạng, mất điện, hỏng máy…). Lượt cũ bị xóa để thí sinh làm bài mới với đề mới; điểm, kết quả và đáp án lượt cũ
+        được lưu trong <b>Nhật ký</b> kèm lý do.
+      </p>
+      <input className={`${inputCls} mb-3 max-w-md`} placeholder="Tìm STT, họ tên hoặc email…" value={kw} onChange={(e) => setKw(e.target.value)} />
+      <Notice tone={msg?.tone} className="mb-3" onClose={() => setMsg(null)}>
+        {msg?.text}
+      </Notice>
+      {!rows ? (
+        <Loading />
+      ) : shown.length === 0 ? (
+        <div className="rounded-lg bg-slate-50 py-6 text-center text-sm text-slate-500">{rows.length ? 'Không tìm thấy thí sinh.' : 'Chưa có lượt thi nào.'}</div>
+      ) : (
+        <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-lg ring-1 ring-slate-200">
+          {shown.map((r) => (
+            <div key={r.email} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-sm">
+              <span className="w-8 tabular-nums text-slate-400">{r.seq ?? '—'}</span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-semibold text-slate-900">{r.name || '(chưa có tên)'}</div>
+                <div className="truncate text-xs text-slate-500">{r.email}</div>
+              </div>
+              <Badge tone={ST_TONE[r.status] || 'slate'}>{r.statusLabel}</Badge>
+              <Button size="sm" variant="secondary" onClick={() => setSel(r)}>
+                Cho thi lại
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal
+        open={!!sel}
+        onClose={() => !busy && setSel(null)}
+        title="Cho thí sinh thi lại?"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setSel(null)} disabled={busy}>
+              Hủy
+            </Button>
+            <Button variant="danger" onClick={reset} disabled={busy || !reason.trim()}>
+              {busy && <Spinner />}Làm mới lượt thi
+            </Button>
+          </>
+        }
+      >
+        {sel && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700">
+              Lượt thi của <b>{sel.name || sel.email}</b> ({sel.email}) – trạng thái <b>{sel.statusLabel}</b> – sẽ bị xóa. Thí sinh vào lại trang thi để làm
+              bài mới.
+            </p>
+            {sel.status === 'in_progress' && (
+              <Notice tone="warn">Thí sinh đang làm bài: bài đang làm sẽ bị hủy ngay và phải bắt đầu lại từ đầu.</Notice>
+            )}
+            <Field label="Lý do (bắt buộc, lưu vào nhật ký)">
+              <textarea rows={3} className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="VD: Mất điện tại công trình lúc 9:15" />
+            </Field>
+          </div>
+        )}
+      </Modal>
+    </Card>
   );
 }
 

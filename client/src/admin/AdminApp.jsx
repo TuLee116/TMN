@@ -21,7 +21,7 @@ const TABS = [
   { id: 'questions', label: 'Câu hỏi', icon: 'book', C: QuestionsTab, desc: 'Ngân hàng câu hỏi' },
   { id: 'grading', label: 'Chấm tự luận', icon: 'pen', C: GradingTab, desc: 'Chấm điểm các câu tự luận' },
   { id: 'dashboard', label: 'Bài làm & thống kê', icon: 'chart', C: DashboardTab, desc: 'Kết quả, bộ lọc và biểu đồ' },
-  { id: 'archive', label: 'Hồ sơ kết quả', icon: 'archive', C: ArchiveTab, desc: 'Xuất ZIP, chốt bài, gửi email, kết thúc đợt' },
+  { id: 'archive', label: 'Hồ sơ kết quả', icon: 'archive', C: ArchiveTab, desc: 'Chốt bài, tải ZIP, cho thi lại, gửi email, kết thúc đợt' },
   { id: 'rounds', label: 'Lịch sử đợt thi', icon: 'history', C: RoundsTab, desc: 'Các đợt thi đã kết thúc và lưu trữ' },
   { id: 'users', label: 'Tài khoản', icon: 'shield', C: UsersTab, desc: 'Tài khoản quản trị và giám khảo' },
   { id: 'audit', label: 'Nhật ký', icon: 'log', C: AuditTab, desc: 'Ai đã làm gì, lúc nào' },
