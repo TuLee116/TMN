@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isAttemptEvent, isResultEvent, useAdminLive } from '../lib/live.js';
 import { api, download } from '../lib/api.js';
 import { fmtDateTime } from '../lib/format.js';
 import { Badge, Button, Card, FilterTabs, inputCls, Loading, Notice, Spinner, Table } from '../lib/ui.jsx';
 
-const STATUS_TONE = { not_started: 'slate', in_progress: 'blue', overdue: 'amber', submitted: 'green', auto_submitted: 'red' };
+const STATUS_TONE = { not_started: 'slate', in_progress: 'green', overdue: 'amber', submitted: 'blue', auto_submitted: 'red' };
 
 export default function ParticipantsTab() {
   const [list, setList] = useState(null);
@@ -13,6 +14,7 @@ export default function ParticipantsTab() {
   const [refresh, setRefresh] = useState(0);
 
   const load = useCallback(async () => setList(await api('/admin/participants')), []);
+  useAdminLive((ev) => ev.type === 'participants', () => load().catch(() => {}), 700);
   useEffect(() => {
     load().catch((e) => setMsg({ tone: 'error', text: e.message }));
   }, [load]);
@@ -153,6 +155,7 @@ function Participation({ refreshKey, onChanged }) {
   useEffect(() => {
     load().catch(() => {});
   }, [load, refreshKey]);
+  useAdminLive(isAttemptEvent, () => load().catch(() => {}), 700);
 
   const c = data?.counts || {};
   const term = q.trim().toLowerCase();
@@ -164,9 +167,14 @@ function Participation({ refreshKey, onChanged }) {
     <Card
       title="Theo dõi tham gia"
       actions={
-        <Button variant="secondary" size="sm" onClick={load} disabled={loading}>
-          {loading && <Spinner />}Làm mới
-        </Button>
+        <span className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> Trực tiếp
+          </span>
+          <Button variant="secondary" size="sm" onClick={load} disabled={loading}>
+            {loading && <Spinner />}Làm mới
+          </Button>
+        </span>
       }
     >
       <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -206,7 +214,16 @@ function Participation({ refreshKey, onChanged }) {
               ),
             },
             { key: 'email', label: 'Email' },
-            { key: 'status', label: 'Trạng thái', render: (r) => <Badge tone={STATUS_TONE[r.status]}>{r.statusLabel}</Badge> },
+            {
+              key: 'status',
+              label: 'Trạng thái',
+              render: (r) => (
+                <Badge tone={STATUS_TONE[r.status]}>
+                  {r.status === 'in_progress' && <span className="mr-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />}
+                  {r.statusLabel}
+                </Badge>
+              ),
+            },
             { key: 'started_at', label: 'Bắt đầu', className: 'whitespace-nowrap', render: (r) => fmtDateTime(r.started_at) },
             { key: 'submitted_at', label: 'Nộp', className: 'whitespace-nowrap', render: (r) => fmtDateTime(r.submitted_at) },
             { key: 'reasonLabel', label: 'Lý do' },

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
-import { fmtNum, fmtVnLocal, STATUS_LABEL } from '../lib/format.js';
+import { fmtNum, fmtVnLocal, STATUS_LABEL, vnLocalToDate } from '../lib/format.js';
 import { Bold, Button, Check, Field, inputCls, LogoChip, Notice, Paragraphs, ruleLines, Spinner } from '../lib/ui.jsx';
 
 const FORM_KEY = 'tmn-start-form';
@@ -15,13 +15,32 @@ export default function Landing({ info, onStarted, onReloadInfo }) {
     }
   });
   const [busy, setBusy] = useState(false);
+  const clockOffset = new Date(info.serverNow).getTime() - info.receivedAt;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
   const [err, setErr] = useState('');
 
-  // Cập nhật trạng thái kỳ thi định kỳ để nút bắt đầu tự mở khi đến giờ
+  // Dự phòng: hỏi lại máy chủ mỗi 60 giây (thay đổi tức thời đã có kênh thời gian thực)
   useEffect(() => {
-    const t = setInterval(() => onReloadInfo().catch(() => {}), 30_000);
+    const t = setInterval(() => onReloadInfo().catch(() => {}), 60_000);
     return () => clearInterval(t);
   }, [onReloadInfo]);
+
+  // Đúng giờ mở / đóng (theo đồng hồ máy chủ) thì cập nhật ngay
+  useEffect(() => {
+    const offset = new Date(info.serverNow).getTime() - Date.now();
+    const now = Date.now() + offset;
+    const marks = [vnLocalToDate(s.openingAt), vnLocalToDate(s.closingAt)]
+      .filter(Boolean)
+      .map((d) => d.getTime() - now)
+      .filter((ms) => ms > 0 && ms < 2 ** 31 - 1);
+    if (!marks.length) return;
+    const t = setTimeout(() => onReloadInfo().catch(() => {}), Math.min(...marks) + 300);
+    return () => clearTimeout(t);
+  }, [info.serverNow, s.openingAt, s.closingAt, onReloadInfo]);
 
   const set = (k) => (v) =>
     setForm((f) => {
@@ -96,11 +115,16 @@ export default function Landing({ info, onStarted, onReloadInfo }) {
     s.multipleChoiceCount > 0 && `${s.multipleChoiceCount} trắc nghiệm × ${fmtNum(s.mcPointsPerQuestion)}đ`,
     s.essayCount > 0 && `${s.essayCount} tự luận × ${fmtNum(s.essayPointsPerQuestion)}đ`,
   ].filter(Boolean);
+  // Đếm ngược tới giờ mở / đóng theo đồng hồ máy chủ
+  const target = info.status === 'upcoming' ? vnLocalToDate(s.openingAt) : info.status === 'open' ? vnLocalToDate(s.closingAt) : null;
+  const left = target ? Math.max(0, target.getTime() - (Date.now() + clockOffset)) : null;
   const btnLabel =
     info.status === 'open'
       ? 'BẮT ĐẦU KIỂM TRA'
       : info.status === 'upcoming'
-        ? 'CHƯA ĐẾN GIỜ KIỂM TRA'
+        ? left != null
+          ? `MỞ THI SAU ${fmtCountdown(left)}`
+          : 'CHƯA ĐẾN GIỜ KIỂM TRA'
         : info.status === 'ended'
           ? 'KỲ THI ĐÃ KẾT THÚC'
           : 'KỲ THI CHƯA MỞ';
@@ -128,6 +152,14 @@ export default function Landing({ info, onStarted, onReloadInfo }) {
             <span className={`h-2 w-2 rounded-full ${DOT[info.status] || 'bg-slate-300'}`} />
             {STATUS_LABEL[info.status]}
           </span>
+          {left != null && (
+            <div className="mt-2">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.25em] text-white/75">
+                {info.status === 'upcoming' ? 'Bắt đầu sau' : 'Đóng kỳ thi sau'}
+              </div>
+              <Countdown ms={left} />
+            </div>
+          )}
         </div>
       </header>
 
@@ -291,5 +323,36 @@ function SectionTitle({ icon, children, className = 'mb-4' }) {
       </span>
       {children}
     </h2>
+  );
+}
+
+function fmtCountdown(ms) {
+  const t = Math.floor(ms / 1000);
+  const d = Math.floor(t / 86400);
+  const p = (n) => String(n).padStart(2, '0');
+  const hms = `${p(Math.floor((t % 86400) / 3600))}:${p(Math.floor((t % 3600) / 60))}:${p(t % 60)}`;
+  return d ? `${d} NGÀY ${hms}` : hms;
+}
+
+function Countdown({ ms }) {
+  const t = Math.floor(ms / 1000);
+  const units = [
+    [Math.floor(t / 86400), 'Ngày'],
+    [Math.floor((t % 86400) / 3600), 'Giờ'],
+    [Math.floor((t % 3600) / 60), 'Phút'],
+    [t % 60, 'Giây'],
+  ].filter(([v, l], i) => i > 0 || v > 0);
+  return (
+    <div className="flex items-start justify-center gap-2 sm:gap-3">
+      {units.map(([v, l], i) => (
+        <div key={l} className="flex items-start gap-2 sm:gap-3">
+          {i > 0 && <span className="pt-2 text-2xl font-bold text-white/50 sm:text-3xl">:</span>}
+          <div className="min-w-16 rounded-xl bg-white/15 px-3 py-2 ring-1 ring-white/25 backdrop-blur sm:min-w-20">
+            <div className="font-mono text-3xl font-extrabold tabular-nums sm:text-4xl">{String(v).padStart(2, '0')}</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-white/70">{l}</div>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

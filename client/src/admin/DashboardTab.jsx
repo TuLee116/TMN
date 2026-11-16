@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isAttemptEvent, isResultEvent, useAdminLive } from '../lib/live.js';
 import { api } from '../lib/api.js';
 import { fmtDateTime, fmtNum, RESULT_LABEL, RESULT_TONE } from '../lib/format.js';
 import { Badge, Button, Card, Field, inputCls, Loading, Modal, Spinner, Stat, Table } from '../lib/ui.jsx';
@@ -19,6 +20,7 @@ export default function DashboardTab() {
       setLoading(false);
     }
   }, [f]);
+  useAdminLive(isResultEvent, () => load().catch(() => {}), 1500);
   useEffect(() => {
     const t = setTimeout(() => load().catch(() => {}), 250);
     return () => clearTimeout(t);

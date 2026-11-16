@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isAttemptEvent, isResultEvent, useAdminLive } from '../lib/live.js';
 import { api } from '../lib/api.js';
 import { Badge, Card, FilterTabs, inputCls, Loading } from '../lib/ui.jsx';
 import AttemptDetail from './AttemptDetail.jsx';
@@ -13,6 +14,7 @@ export default function GradingTab() {
     setData(await api(`/admin/grading?filter=${filter}&q=${encodeURIComponent(q.trim())}`));
   }, [filter, q]);
 
+  useAdminLive(isResultEvent, () => load().catch(() => {}), 1500);
   useEffect(() => {
     const t = setTimeout(() => load().catch(() => {}), 250);
     return () => clearTimeout(t);

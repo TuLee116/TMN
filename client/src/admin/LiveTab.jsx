@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isAttemptEvent, isResultEvent, useAdminLive } from '../lib/live.js';
 import { api } from '../lib/api.js';
 import { fmtClock, fmtDateTime, fmtNum, RESULT_LABEL, RESULT_TONE } from '../lib/format.js';
 import { Badge, Button, Card, Check, Icon, Loading, Modal, Notice, Spinner, Table } from '../lib/ui.jsx';
@@ -32,9 +33,11 @@ export default function LiveTab() {
   useEffect(() => {
     load().catch((e) => setErr(e.message));
   }, [load]);
+  // Thời gian thực + dự phòng hỏi lại 30 giây
+  useAdminLive((ev) => auto && isAttemptEvent(ev), () => load().catch(() => {}), 1000);
   useEffect(() => {
     if (!auto) return;
-    const t = setInterval(() => load().catch(() => {}), 10_000);
+    const t = setInterval(() => load().catch(() => {}), 30_000);
     return () => clearInterval(t);
   }, [auto, load]);
   useEffect(() => {
@@ -69,7 +72,7 @@ export default function LiveTab() {
         <span className="text-sm font-semibold text-slate-800">{d.live.length} thí sinh đang làm bài</span>
         <span className="text-xs text-slate-500">Cập nhật {ago < 2 ? 'vừa xong' : `${ago} giây trước`}</span>
         <div className="ml-auto flex items-center gap-3">
-          <Check label="Tự cập nhật mỗi 10 giây" checked={auto} onChange={setAuto} />
+          <Check label="Cập nhật trực tiếp" checked={auto} onChange={setAuto} />
           <Button size="sm" variant="secondary" onClick={() => load().catch((e) => setErr(e.message))}>
             <Icon name="refresh" className="h-4 w-4" /> Làm mới
           </Button>

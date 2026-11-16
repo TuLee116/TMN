@@ -1,10 +1,21 @@
 import { q, tx } from './db.js';
+import { bus, emit } from './bus.js';
 import { round2, sameSet, to10, maxScoreOf, TEST_MODE } from './util.js';
 
 /** Toàn bộ câu hỏi (kể cả đã ẩn) theo id – ngân hàng nhỏ nên nạp một lần */
+// Bộ nhớ đệm ngân hàng câu hỏi: xóa ngay khi có sự kiện 'settings' (mọi thay đổi câu hỏi đều phát sự kiện này)
+let qCache = null;
+let qAt = 0;
+bus.on('event', (ev) => {
+  if (ev.type === 'settings') qCache = null;
+});
 export async function questionMap() {
-  const r = await q(`SELECT id, type, text, options, correct, reference, active, position, topic, difficulty FROM questions`);
-  return new Map(r.rows.map((x) => [x.id, x]));
+  if (!qCache || Date.now() - qAt > 30_000) {
+    const r = await q(`SELECT id, type, text, options, correct, reference, active, position, topic, difficulty FROM questions`);
+    qCache = new Map(r.rows.map((x) => [x.id, Object.freeze(x)]));
+    qAt = Date.now();
+  }
+  return qCache;
 }
 
 export function answerList(v) {
@@ -122,7 +133,7 @@ export function sanitizeAnswers(input, attempt, qmap) {
  */
 export async function submitAttempt(attemptId, reason, { answers } = {}) {
   const qmap = await questionMap();
-  return tx(async (c) => {
+  const out = await tx(async (c) => {
     const r = await c.query(`SELECT * FROM exam_attempts WHERE id=$1 FOR UPDATE`, [attemptId]);
     const a = r.rows[0];
     if (!a) return null;
@@ -138,6 +149,8 @@ export async function submitAttempt(attemptId, reason, { answers } = {}) {
     );
     return u.rows[0];
   });
+  if (out?.submitted_at) emit('attempt', { id: out.id, kind: 'submit' });
+  return out;
 }
 
 /** Chốt các bài đã quá hạn mà chưa nộp */
@@ -152,7 +165,7 @@ export async function finalizeOverdue(reason = 'finalized') {
 /** Tính lại điểm sau khi chấm tự luận */
 export async function regrade(attemptId, essayScores) {
   const qmap = await questionMap();
-  return tx(async (c) => {
+  const out = await tx(async (c) => {
     const r = await c.query(`SELECT * FROM exam_attempts WHERE id=$1 FOR UPDATE`, [attemptId]);
     const a = r.rows[0];
     if (!a) return null;
@@ -165,6 +178,8 @@ export async function regrade(attemptId, essayScores) {
     );
     return u.rows[0];
   });
+  if (out) emit('attempt', { id: out.id, kind: 'grade' });
+  return out;
 }
 
 /** Tính lại điểm mọi bài đã nộp có chứa câu hỏi (sau khi sửa đáp án đúng) */
@@ -181,6 +196,7 @@ export async function regradeQuestion(questionId) {
       g.max_score,
       g.result,
     ]);
+    emit('attempt', { id: a.id, kind: 'grade' });
   }
   return r.rows.length;
 }

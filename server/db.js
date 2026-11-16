@@ -16,7 +16,7 @@ const useSsl = /sslmode=require/.test(connectionString) || process.env.PGSSL ===
 export const pool = new Pool({
   connectionString,
   ssl: useSsl ? { rejectUnauthorized: false } : undefined,
-  max: Number(process.env.PG_POOL_MAX || 10),
+  max: Number(process.env.PG_POOL_MAX || 20),
 });
 
 export const q = (text, params) => pool.query(text, params);
@@ -214,9 +214,16 @@ export async function initSchema() {
   `);
 }
 
+// Bộ nhớ đệm cấu hình (1 máy chủ): làm mới ngay khi lưu, tối đa 5 giây
+let settingsCache = null;
+let settingsAt = 0;
 export async function getSettings() {
-  const r = await q(`SELECT value FROM app_settings WHERE key='exam'`);
-  return { ...DEFAULT_SETTINGS, ...(r.rows[0]?.value || {}) };
+  if (!settingsCache || Date.now() - settingsAt > 5000) {
+    const r = await q(`SELECT value FROM app_settings WHERE key='exam'`);
+    settingsCache = { ...DEFAULT_SETTINGS, ...(r.rows[0]?.value || {}) };
+    settingsAt = Date.now();
+  }
+  return { ...settingsCache };
 }
 
 export async function saveSettings(value) {
@@ -225,6 +232,7 @@ export async function saveSettings(value) {
      ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`,
     [value]
   );
+  settingsCache = null;
 }
 
 export async function getLogo() {
