@@ -374,7 +374,7 @@ function EmailCard({ goto }) {
   const [progress, setProgress] = useState(null);
 
   const load = useCallback(async () => setSt(await api('/admin/email/status')), []);
-  useAdminLive(isResultEvent, () => load().catch(() => {}), 1500);
+  useAdminLive(isResultEvent, () => load().catch(() => {}), 1000);
   useEffect(() => {
     load().catch((e) => setMsg({ tone: 'error', text: e.message }));
   }, [load]);

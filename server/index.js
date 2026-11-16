@@ -56,7 +56,7 @@ import {
 } from './importer.js';
 import { renderAttemptPdf } from './pdf.js';
 import { writeResultsZip, loadEvents, pdfFileName } from './export.js';
-import { emit, openStream } from './bus.js';
+import { emit, openStream, versions } from './bus.js';
 import { audit, AUDIT_LABEL, fillTemplate, hashPassword, mailConfig, ROLE_LABEL, sendMail, verifyPassword } from './accounts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -526,6 +526,13 @@ app.post(
 
 const CANDIDATE_KINDS = new Set(['submit', 'grade', 'reset']);
 
+/** Hỏi nhanh phiên bản dữ liệu (không truy vấn CSDL) – dự phòng khi SSE bị chặn / giữ */
+app.get('/api/exam/version', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const a = String(req.query.a || '');
+  res.json({ s: versions.settings, c: versions.cleared, a: a ? versions.attempt.get(a) || 0 : 0 });
+});
+
 app.get(
   '/api/exam/stream',
   wrap(async (req, res) => {
@@ -603,6 +610,7 @@ const GRADER_ALLOWED = [
   ['GET', '/attempt-pdf'],
   ['POST', '/grade-essay-attempt'],
   ['GET', '/stream'],
+  ['GET', '/version'],
 ];
 
 app.use(
@@ -1315,6 +1323,10 @@ app.get(
 );
 
 app.get('/api/admin/stream', (req, res) => openStream(req, res, (ev) => ev));
+app.get('/api/admin/version', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ v: versions.all });
+});
 
 /* ------------------------------------------------------------------ */
 /* Admin: tổng quan & theo dõi trực tiếp                                */

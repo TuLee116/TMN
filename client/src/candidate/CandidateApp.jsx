@@ -54,7 +54,8 @@ export default function CandidateApp() {
         if (ev.type === 'settings') reloadInfo().catch(() => {});
         else if (ev.type === 'attempt') refreshState().catch(() => {});
       },
-      () => load()
+      () => load(),
+      `/api/exam/version?a=${attemptId || ''}`
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attemptId, attempt === undefined]);

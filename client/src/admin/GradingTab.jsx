@@ -14,7 +14,7 @@ export default function GradingTab() {
     setData(await api(`/admin/grading?filter=${filter}&q=${encodeURIComponent(q.trim())}`));
   }, [filter, q]);
 
-  useAdminLive(isResultEvent, () => load().catch(() => {}), 1500);
+  useAdminLive(isResultEvent, () => load().catch(() => {}), 1000);
   useEffect(() => {
     const t = setTimeout(() => load().catch(() => {}), 250);
     return () => clearTimeout(t);

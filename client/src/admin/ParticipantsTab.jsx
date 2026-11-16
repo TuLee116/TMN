@@ -14,7 +14,7 @@ export default function ParticipantsTab() {
   const [refresh, setRefresh] = useState(0);
 
   const load = useCallback(async () => setList(await api('/admin/participants')), []);
-  useAdminLive((ev) => ev.type === 'participants', () => load().catch(() => {}), 700);
+  useAdminLive((ev) => ev.type === "participants", () => load().catch(() => {}), 300);
   useEffect(() => {
     load().catch((e) => setMsg({ tone: 'error', text: e.message }));
   }, [load]);
@@ -155,7 +155,7 @@ function Participation({ refreshKey, onChanged }) {
   useEffect(() => {
     load().catch(() => {});
   }, [load, refreshKey]);
-  useAdminLive(isAttemptEvent, () => load().catch(() => {}), 700);
+  useAdminLive(isAttemptEvent, () => load().catch(() => {}), 300);
 
   const c = data?.counts || {};
   const term = q.trim().toLowerCase();

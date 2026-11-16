@@ -20,7 +20,7 @@ export default function DashboardTab() {
       setLoading(false);
     }
   }, [f]);
-  useAdminLive(isResultEvent, () => load().catch(() => {}), 1500);
+  useAdminLive(isResultEvent, () => load().catch(() => {}), 1000);
   useEffect(() => {
     const t = setTimeout(() => load().catch(() => {}), 250);
     return () => clearTimeout(t);

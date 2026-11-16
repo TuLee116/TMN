@@ -1,42 +1,80 @@
 import { useEffect, useRef } from 'react';
 
+const PING_TIMEOUT = 4500; // quá 4,5 giây không có tín hiệu sống → coi như mạng đang giữ luồng
+const POLL_MS = 1500; // khi đó hỏi nhanh phiên bản dữ liệu mỗi 1,5 giây
+
 /**
- * Kết nối SSE có tự kết nối lại. onEvent nhận sự kiện; onResync gọi khi kết nối lại sau gián đoạn
- * (đồng bộ lại toàn bộ để không bỏ sót thay đổi trong lúc mất mạng).
+ * Kết nối SSE có tự kết nối lại + dự phòng hỏi nhanh.
+ * - onEvent(ev): sự kiện từ máy chủ
+ * - onResync(): đồng bộ lại toàn bộ (sau khi mất kết nối, hoặc khi hỏi nhanh thấy dữ liệu đổi)
+ * - versionUrl: API trả phiên bản dữ liệu (rất nhẹ); dùng khi SSE không tới kịp → độ trễ tối đa ~2–3 giây
  */
-export function connect(url, onEvent, onResync) {
+export function connect(url, onEvent, onResync, versionUrl) {
   let es = null;
   let closed = false;
   let broken = false;
   let timer = null;
+  let lastMsg = Date.now();
+  let ver = null;
+  let polling = false;
+
+  const checkVersion = async (resyncIfChanged) => {
+    if (!versionUrl || polling) return;
+    polling = true;
+    try {
+      const r = await fetch(versionUrl, { credentials: 'same-origin', cache: 'no-store' });
+      if (r.ok) {
+        const v = await r.text();
+        if (resyncIfChanged && ver !== null && v !== ver) onResync?.();
+        ver = v;
+      }
+    } catch {
+      /* mất mạng – thử lại ở nhịp sau */
+    } finally {
+      polling = false;
+    }
+  };
+
   const open = () => {
     if (closed) return;
     es = new EventSource(url, { withCredentials: true });
     es.onopen = () => {
+      lastMsg = Date.now();
       if (broken) onResync?.();
       broken = false;
     };
     es.onmessage = (e) => {
+      lastMsg = Date.now();
       try {
         const ev = JSON.parse(e.data);
-        if (ev.type !== 'hello') onEvent(ev);
+        if (ev.type === 'ping' || ev.type === 'hello') return;
+        onEvent(ev);
+        checkVersion(false); // cập nhật mốc phiên bản để không đồng bộ trùng
       } catch {
         /* bỏ qua */
       }
     };
     es.onerror = () => {
       broken = true;
-      // trình duyệt tự kết nối lại khi còn CONNECTING; nếu đã CLOSED (vd. 401) thì thử lại sau 5 giây
+      // trình duyệt tự nối lại khi còn CONNECTING; nếu đã CLOSED (vd. 401) thì thử lại sau 3 giây
       if (es.readyState === EventSource.CLOSED) {
         es.close();
-        timer = setTimeout(open, 5000);
+        timer = setTimeout(open, 3000);
       }
     };
   };
   open();
+  checkVersion(false);
+
+  // Canh gác: luồng SSE im quá lâu (mạng giữ / proxy đệm) → hỏi nhanh phiên bản
+  const watchdog = setInterval(() => {
+    if (Date.now() - lastMsg > PING_TIMEOUT) checkVersion(true);
+  }, POLL_MS);
+
   return () => {
     closed = true;
     clearTimeout(timer);
+    clearInterval(watchdog);
     es?.close();
   };
 }
@@ -51,7 +89,8 @@ function ensureAdmin() {
   stopAdmin = connect(
     '/api/admin/stream',
     (ev) => listeners.forEach((l) => l(ev)),
-    () => listeners.forEach((l) => l({ type: 'resync' }))
+    () => listeners.forEach((l) => l({ type: 'resync' })),
+    '/api/admin/version'
   );
 }
 
