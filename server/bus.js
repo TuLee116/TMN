@@ -9,7 +9,19 @@ import { EventEmitter } from 'node:events';
 export const bus = new EventEmitter();
 bus.setMaxListeners(0);
 
+// Số phiên bản dữ liệu – để trình duyệt hỏi nhẹ "có gì mới không" khi luồng SSE bị mạng giữ lại
+export const versions = { all: 0, settings: 0, cleared: 0, attempt: new Map() };
+
 export function emit(type, data = {}) {
+  versions.all++;
+  if (type === 'settings') versions.settings++;
+  if (type === 'attempts_cleared') {
+    versions.cleared++;
+    versions.attempt.clear();
+  }
+  if (type === 'attempt' && data.id && data.kind !== 'progress' && data.kind !== 'warning') {
+    versions.attempt.set(data.id, (versions.attempt.get(data.id) || 0) + 1);
+  }
   bus.emit('event', { type, ...data, at: Date.now() });
 }
 
@@ -28,7 +40,8 @@ export function openStream(req, res, filter) {
     if (out) res.write(`data: ${JSON.stringify(out)}\n\n`);
   };
   bus.on('event', send);
-  const ping = setInterval(() => res.write(`: ping\n\n`), 20_000);
+  // Tín hiệu sống mỗi 2 giây: trình duyệt dùng để phát hiện mạng giữ luồng (chuyển sang hỏi nhanh)
+  const ping = setInterval(() => res.write(`data: {"type":"ping"}\n\n`), 2_000);
   req.on('close', () => {
     clearInterval(ping);
     bus.off('event', send);

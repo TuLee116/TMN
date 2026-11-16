@@ -34,7 +34,7 @@ export default function LiveTab() {
     load().catch((e) => setErr(e.message));
   }, [load]);
   // Thời gian thực + dự phòng hỏi lại 30 giây
-  useAdminLive((ev) => auto && isAttemptEvent(ev), () => load().catch(() => {}), 1000);
+  useAdminLive((ev) => auto && isAttemptEvent(ev), () => load().catch(() => {}), 500);
   useEffect(() => {
     if (!auto) return;
     const t = setInterval(() => load().catch(() => {}), 30_000);

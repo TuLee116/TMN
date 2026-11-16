@@ -17,7 +17,7 @@ export default function OverviewTab({ goto }) {
     setErr('');
   }, []);
 
-  useAdminLive(() => true, () => load().catch(() => {}), 1500);
+  useAdminLive((ev) => ev.type !== 'attempt' || ev.kind !== 'progress', () => load().catch(() => {}), 1000);
   useEffect(() => {
     load().catch((e) => setErr(e.message));
     const t = setInterval(() => load().catch(() => {}), 60_000);
