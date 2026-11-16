@@ -7,7 +7,7 @@ Dựng lại web thi `exam-tan-minh-nhan.vercel.app` (bản cũ: React/Vite + AP
 - `server/db.js`: schema Postgres (app_settings, projects, participants, questions, exam_attempts, exam_events) + DEFAULT_SETTINGS.
 - `server/util.js`: giờ VN, cookie ký HMAC, kiểm tra email domain, tính điểm, các mốc phân bố điểm.
 - `server/index.js`: toàn bộ API thí sinh + admin (mục API bên dưới), thêm `admin/questions`, `admin/attempt`, `admin/attempt-pdf`, `admin/logo`, `admin/me|logout`, `GET /api/logo`, `/mediapipe/wasm` (phục vụ WASM MediaPipe từ node_modules).
-- `server/attempts.js` (chấm điểm, nộp bài, chốt bài quá hạn), `server/importer.js` (đọc/mẫu Excel–Word câu hỏi, danh sách email), `server/pdf.js` (PDF đối chiếu / hồ sơ, font DejaVu), `server/export.js` (ZIP Excel tổng hợp + PDF).
+- `server/attempts.js` (chấm điểm, nộp bài, chốt bài quá hạn), `server/importer.js` (đọc/mẫu Excel–Word câu hỏi, danh sách email), `server/pdf.js` (PDF hồ sơ bài làm, font DejaVu), `server/export.js` (ZIP Excel tổng hợp + PDF).
 - Upload tệp (import) gửi thân request là nội dung tệp nhị phân, ví dụ `POST /api/admin/import?format=xlsx&mode=replace&dryRun=1`.
 - `PG_POOL_MAX` (tùy chọn) giới hạn số kết nối Postgres.
 - `client/`: React – `candidate/` (Landing, ExamView, ResultView, WebcamMonitor + `webcam.js`), `admin/` (6 tab + AttemptDetail), `lib/` (api, format, ui). `vite.config.js` (root `client`, build ra `dist/`), `railway.json`, `README.md`.
@@ -36,7 +36,7 @@ Trạng thái kỳ thi: Chưa kích hoạt / Sắp mở thi / Đang mở thi / �
 2. Nội quy: bật toàn màn hình khi bắt đầu; không chuyển tab/cửa sổ — nếu trang bị ẩn sẽ **tự động nộp bài** và **tự động không đạt**.
 3. Form: Họ và tên, Email công ty (phải đuôi `@tanminhnhan.com.vn` và có trong danh sách được duyệt), Chức danh / vị trí, Cấp bậc (nhập tự do), Địa điểm kiểm tra (chọn công trình đang active), checkbox "Tôi đã đọc, hiểu rõ và cam kết tuân thủ toàn bộ nội quy". Nút BẮT ĐẦU KIỂM TRA / CHƯA ĐẾN GIỜ KIỂM TRA.
 4. Mỗi email chỉ một lượt thi; tải lại trang thì tiếp tục lượt cũ (cookie token). Đề lấy ngẫu nhiên đúng số câu TN + TL từ ngân hàng câu đang hoạt động.
-5. Làm bài: đồng hồ "Thời gian còn lại", bảng số câu (đánh dấu chưa trả lời), Câu trước/Câu sau (paged) hoặc cuộn cả trang (all). single: "Chọn một đáp án", multiple: "Chọn tất cả đáp án phù hợp", essay: textarea. Tự lưu (Đang lưu… / Đã lưu / Lỗi lưu, đáp án đang chờ đồng bộ) + nháp localStorage. Hết giờ tự nộp. Thoát toàn màn hình → khóa màn hình "Cần bật toàn màn hình". `visibilitychange` ẩn → nộp tự động lý do tab_switch. Nút "Xuất PDF đối chiếu" (`/api/exam/review-pdf`). Nộp bài có hộp xác nhận "Bạn đã trả lời X câu. Sau khi nộp không thể sửa."
+5. Làm bài: đồng hồ "Thời gian còn lại", bảng số câu (đánh dấu chưa trả lời), Câu trước/Câu sau (paged) hoặc cuộn cả trang (all). single: "Chọn một đáp án", multiple: "Chọn tất cả đáp án phù hợp", essay: textarea. Tự lưu (Đang lưu… / Đã lưu / Lỗi lưu, đáp án đang chờ đồng bộ) + nháp localStorage. Hết giờ tự nộp. Thoát toàn màn hình → khóa màn hình "Cần bật toàn màn hình". `visibilitychange` ẩn → nộp tự động lý do tab_switch. (Đã bỏ nút "Xuất PDF đối chiếu" theo yêu cầu – thí sinh không tải được đề ra ngoài.) Nộp bài có hộp xác nhận "Bạn đã trả lời X câu. Sau khi nộp không thể sửa."
 6. Kết quả: ĐẠT / KHÔNG ĐẠT, tổng điểm, đúng/sai; nếu có tự luận chưa chấm → "ĐANG CHỜ CHẤM TỰ LUẬN", trang tự kiểm tra lại mỗi 15 giây. Nếu showScore=false thì chỉ báo đã nộp.
 7. Chấm TN: multiple phải đúng trọn bộ mới được điểm. Điểm thang 10 = tổng/tối đa×10.
 
@@ -49,7 +49,7 @@ Trạng thái kỳ thi: Chưa kích hoạt / Sắp mở thi / Đang mở thi / �
 6. **Hồ sơ kết quả**: Tải ZIP (Excel tổng hợp + PDF từng bài, sheet "Hồ sơ phúc khảo" có hyperlink tới PDF; tên PDF theo STT + họ tên); "Tải ZIP và xóa dữ liệu" (chỉ khi kỳ thi đã đóng và không còn bài đang làm; giữ câu hỏi, cấu hình, danh sách email); "Chốt bài hết hạn" (tự nộp các bài quá hạn).
 
 ## API (giữ tên như bản cũ)
-`exam/info, exam/start, exam/state, exam/answers, exam/submit, exam/reset, exam/review-pdf, exam/event (mới – webcam)`;
+`exam/info, exam/start, exam/state, exam/answers, exam/submit, exam/reset, exam/event (mới – webcam)`;
 `admin/login, admin/settings, admin/projects, admin/participants, admin/participation, admin/participant-template, admin/template?format=xlsx|docx, admin/import, admin/dashboard, admin/grading, admin/grade-essay-attempt, admin/export, admin/clear-results, admin/reconcile`.
 
 ## Giám sát webcam (mới)
