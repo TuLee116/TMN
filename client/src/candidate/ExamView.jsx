@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, download } from '../lib/api.js';
+import { api } from '../lib/api.js';
 import { fmtClock, isAnswered, KIND_LABEL, LETTERS } from '../lib/format.js';
 import { Button, Icon, Logo, Modal, Notice, Spinner } from '../lib/ui.jsx';
 import WebcamMonitor from './WebcamMonitor.jsx';
@@ -41,7 +41,6 @@ export default function ExamView({ attempt, testMode, stream, setStream, onSubmi
   const [warnToast, setWarnToast] = useState(null);
   const [warnCount, setWarnCount] = useState(attempt.webcamWarnings || 0);
   const [camError, setCamError] = useState('');
-  const [pdfBusy, setPdfBusy] = useState(false);
   // Câu đánh dấu xem lại – chỉ lưu trên máy thí sinh
   const flagKey = `tmn-flag-${attempt.id}`;
   const [flags, setFlags] = useState(() => {
@@ -294,17 +293,6 @@ export default function ExamView({ attempt, testMode, stream, setStream, onSubmi
     else document.getElementById(`q-${questions[i].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  async function reviewPdf() {
-    setPdfBusy(true);
-    try {
-      await saveNow();
-      await download('/exam/review-pdf', 'doi_chieu.pdf');
-    } catch (e) {
-      setNotice(e.message);
-    } finally {
-      setPdfBusy(false);
-    }
-  }
 
   const lowTime = remaining < 5 * 60_000;
   const q = questions[idx];
@@ -379,14 +367,6 @@ export default function ExamView({ attempt, testMode, stream, setStream, onSubmi
               {saveState === 'saving' ? <Spinner className="h-3 w-3" /> : <Icon name={saveState === 'error' ? 'alert' : 'check'} className="h-3.5 w-3.5" />}
               {SAVE_LABEL[saveState]}
             </span>
-            <button
-              type="button"
-              onClick={reviewPdf}
-              disabled={pdfBusy}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ring-1 ring-white/40 hover:bg-white/10 disabled:opacity-60"
-            >
-              {pdfBusy && <Spinner className="h-3 w-3" />}PDF đối chiếu
-            </button>
             <button
               type="button"
               onClick={() => setConfirmOpen(true)}

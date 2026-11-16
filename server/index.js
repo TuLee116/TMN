@@ -153,18 +153,6 @@ function displayAnswers(a, qmap) {
   return out;
 }
 
-/** Bản câu hỏi + bài làm theo thứ tự thí sinh thấy (dùng cho PDF đối chiếu của thí sinh) */
-function displayView(a, qmap) {
-  if (!a.option_orders || !Object.keys(a.option_orders).length) return { attempt: a, qmap };
-  const m = new Map(qmap);
-  for (const id of a.question_ids) {
-    const qu = qmap.get(id);
-    const o = optionOrder(a, id);
-    if (qu && o) m.set(id, { ...qu, options: o.map((i) => qu.options[i]), correct: toDisplayLetters(a, id, qu.correct) });
-  }
-  return { attempt: { ...a, answers: displayAnswers(a, qmap) }, qmap: m };
-}
-
 async function candidateView(a, qmap) {
   const s = a.settings_snapshot;
   const current = await getSettings();
@@ -438,30 +426,6 @@ app.post(
     setCookie(res, EXAM_COOKIE, '', { maxAge: 0, secure: isSecure(req) });
     if (a) emit('attempt', { id: a.id, kind: 'reset' });
     res.json({ ok: true });
-  })
-);
-
-app.get(
-  '/api/exam/review-pdf',
-  wrap(async (req, res) => {
-    const a = await requireAttempt(req);
-    const [qmap, logo, project] = await Promise.all([
-      questionMap(),
-      getLogo(),
-      a.project_id ? q(`SELECT name FROM projects WHERE id=$1`, [a.project_id]) : null,
-    ]);
-    const view = displayView(a, qmap);
-    const pdf = await renderAttemptPdf({
-      attempt: view.attempt,
-      qmap: view.qmap,
-      mode: 'review',
-      projectName: project?.rows[0]?.name,
-      logo,
-      title: a.settings_snapshot.title,
-    });
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent('doi_chieu_' + pdfFileName(a))}`);
-    res.send(pdf);
   })
 );
 
