@@ -56,6 +56,7 @@ import {
 } from './importer.js';
 import { renderAttemptPdf } from './pdf.js';
 import { writeResultsZip, loadEvents, pdfFileName } from './export.js';
+import { emit, openStream } from './bus.js';
 import { audit, AUDIT_LABEL, fillTemplate, hashPassword, mailConfig, ROLE_LABEL, sendMail, verifyPassword } from './accounts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -377,6 +378,7 @@ app.post(
       throw e;
     }
     setCookie(res, EXAM_COOKIE, makeSigned(token), { maxAge: 3 * 24 * 3600, secure: isSecure(req) });
+    emit('participants');
     res.json({ ok: true });
   })
 );
@@ -407,6 +409,7 @@ const saveAnswers = wrap(async (req, res) => {
       [a.id, JSON.stringify(clean)]
     );
     if (!r.rowCount) throw new HttpError(409, 'Bài đã nộp, không thể sửa.', { submitted: true });
+    emit('attempt', { id: a.id, kind: 'progress' });
     res.json({ ok: true, savedAt: new Date().toISOString() });
 });
 // PUT khi tự lưu; POST cho navigator.sendBeacon khi đóng trang
@@ -433,6 +436,7 @@ app.post(
     const a = await attemptFromCookie(req);
     if (a) await q(`DELETE FROM exam_attempts WHERE id=$1`, [a.id]);
     setCookie(res, EXAM_COOKIE, '', { maxAge: 0, secure: isSecure(req) });
+    if (a) emit('attempt', { id: a.id, kind: 'reset' });
     res.json({ ok: true });
   })
 );
@@ -502,6 +506,7 @@ app.post(
     });
     if (result.submitted || result.ignored) return res.json({ ok: true, ...result });
 
+    if (type === 'webcam_warning') emit('attempt', { id: a.id, kind: 'warning' });
     const max = Number(a.settings_snapshot.webcamMaxWarnings) || 0;
     if (type === 'webcam_warning' && max > 0 && result.warnings >= max && !TEST_MODE) {
       const done = await submitAttempt(a.id, 'webcam');
@@ -514,6 +519,26 @@ app.post(
 /* ------------------------------------------------------------------ */
 /* Xác thực admin                                                      */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* Thời gian thực (SSE)                                                */
+/* ------------------------------------------------------------------ */
+
+const CANDIDATE_KINDS = new Set(['submit', 'grade', 'reset']);
+
+app.get(
+  '/api/exam/stream',
+  wrap(async (req, res) => {
+    const a = await attemptFromCookie(req);
+    const myId = a?.id || null;
+    openStream(req, res, (ev) => {
+      if (ev.type === 'settings') return { type: 'settings' };
+      if (ev.type === 'attempts_cleared' && myId) return { type: 'attempt', kind: 'reset' };
+      if (ev.type === 'attempt' && myId && ev.id === myId && CANDIDATE_KINDS.has(ev.kind)) return { type: 'attempt', kind: ev.kind };
+      return null;
+    });
+  })
+);
 
 const SUPER = { id: 0, username: 'admin', name: 'Quản trị chính', role: 'admin' };
 
@@ -577,6 +602,7 @@ const GRADER_ALLOWED = [
   ['GET', '/attempt'],
   ['GET', '/attempt-pdf'],
   ['POST', '/grade-essay-attempt'],
+  ['GET', '/stream'],
 ];
 
 app.use(
@@ -664,6 +690,7 @@ app.put(
     const s = cleanSettings(req.body || {}, await getSettings());
     await saveSettings(s);
     await audit(req, 'settings_save', { title: s.title, active: s.active });
+    emit('settings');
     res.json({ settings: s, status: examStatus(s), maxScore: maxScoreOf(s) });
   })
 );
@@ -681,6 +708,7 @@ app.put(
     if (m[2].length > 700_000) throw new HttpError(400, 'Logo quá lớn (tối đa ~500KB).');
     await saveLogo({ mime: m[1], data: m[2] });
     await audit(req, 'logo_change', null);
+    emit('settings');
     res.json({ ok: true, hasLogo: true });
   })
 );
@@ -705,6 +733,7 @@ app.post(
     try {
       const r = await q(`INSERT INTO projects(name) VALUES ($1) RETURNING *`, [name]);
       await audit(req, 'project_add', { name });
+      emit('settings');
       res.json({ project: r.rows[0] });
     } catch (e) {
       if (e.code === '23505') throw new HttpError(409, 'Công trình đã tồn tại.');
@@ -732,6 +761,7 @@ app.patch(
     const r = await q(`UPDATE projects SET ${fields.join(', ')} WHERE id=$1 RETURNING *`, vals);
     if (!r.rowCount) throw new HttpError(404, 'Không tìm thấy công trình.');
     await audit(req, 'project_update', { name: r.rows[0].name, active: r.rows[0].active });
+    emit('settings');
     res.json({ project: r.rows[0] });
   })
 );
@@ -743,6 +773,7 @@ app.delete(
     if (used) throw new HttpError(409, 'Công trình đã có bài thi, chỉ có thể ẩn.');
     await q(`DELETE FROM projects WHERE id=$1`, [req.params.id]);
     await audit(req, 'project_delete', { id: req.params.id });
+    emit('settings');
     res.json({ ok: true });
   })
 );
@@ -783,6 +814,7 @@ app.post(
       );
     });
     await audit(req, 'participants_import', { count: participants.length });
+    emit('participants');
     res.json({ ok: true, count: participants.length, invalid, duplicates });
   })
 );
@@ -817,6 +849,7 @@ app.post(
       );
     }
     await audit(req, 'participants_add', { added });
+    emit('participants');
     res.json({ ok: true, added, duplicates, invalid });
   })
 );
@@ -830,6 +863,7 @@ app.delete(
     const r = await q(`DELETE FROM participants WHERE email=$1`, [email]);
     if (!r.rowCount) throw new HttpError(404, 'Không tìm thấy email trong danh sách.');
     await audit(req, 'participant_delete', { email });
+    emit('participants');
     res.json({ ok: true });
   })
 );
@@ -839,6 +873,7 @@ app.delete(
   wrap(async (req, res) => {
     await q(`DELETE FROM participants`);
     await audit(req, 'participants_delete', null);
+    emit('participants');
     res.json({ ok: true });
   })
 );
@@ -942,6 +977,7 @@ app.post(
       [x.type, x.text, JSON.stringify(x.options), JSON.stringify(x.correct), x.reference, x.topic, x.difficulty]
     );
     await audit(req, 'question_add', { id: r.rows[0].id, text: r.rows[0].text.slice(0, 120) });
+    emit('settings');
     res.json({ question: r.rows[0] });
   })
 );
@@ -965,6 +1001,7 @@ app.put(
       `UPDATE questions SET type=$2, text=$3, options=$4, correct=$5, reference=$6, topic=$7, difficulty=$8 WHERE id=$1 RETURNING *`,
       [id, x.type, x.text, JSON.stringify(x.options), JSON.stringify(x.correct), x.reference, x.topic, x.difficulty]
     );
+    emit('settings'); // xóa bộ nhớ đệm câu hỏi trước khi chấm lại
     if (locked && JSON.stringify(x.correct) !== JSON.stringify(cur.correct)) regraded = await regradeQuestion(id);
     await audit(req, 'question_edit', { id, text: cur.text.slice(0, 120), regraded });
     res.json({ question: r.rows[0], regraded });
@@ -978,6 +1015,7 @@ app.delete(
     const r = await q(`DELETE FROM questions WHERE id=$1`, [Number(req.params.id)]);
     if (!r.rowCount) throw new HttpError(404, 'Không tìm thấy câu hỏi.');
     await audit(req, 'question_delete', { id: Number(req.params.id) });
+    emit('settings');
     res.json({ ok: true });
   })
 );
@@ -1034,6 +1072,7 @@ app.post(
     });
     const total = (await q(`SELECT count(*)::int AS n FROM questions`)).rows[0].n;
     await audit(req, 'questions_import', { saved: questions.length, mode });
+    emit('settings');
     res.json({ ok: true, saved: questions.length, total, summary, mode });
   })
 );
@@ -1045,6 +1084,7 @@ app.patch(
     const r = await q(`UPDATE questions SET active=$2 WHERE id=$1 RETURNING *`, [Number(req.params.id), !!req.body?.active]);
     if (!r.rowCount) throw new HttpError(404, 'Không tìm thấy câu hỏi.');
     await audit(req, 'question_toggle', { id: r.rows[0].id, active: r.rows[0].active });
+    emit('settings');
     res.json({ question: r.rows[0] });
   })
 );
@@ -1274,6 +1314,8 @@ app.get(
   })
 );
 
+app.get('/api/admin/stream', (req, res) => openStream(req, res, (ev) => ev));
+
 /* ------------------------------------------------------------------ */
 /* Admin: tổng quan & theo dõi trực tiếp                                */
 /* ------------------------------------------------------------------ */
@@ -1445,6 +1487,7 @@ app.post(
     if (req.body?.confirm !== true) throw new HttpError(400, 'Thiếu xác nhận xóa.');
     const r = await q(`DELETE FROM exam_attempts`);
     await audit(req, 'clear_results', { deleted: r.rowCount });
+    emit('attempts_cleared');
     res.json({ ok: true, deleted: r.rowCount });
   })
 );
@@ -1478,6 +1521,7 @@ app.post(
       answers: a.answers,
       essayScores: a.essay_scores,
     });
+    emit('attempt', { id, kind: 'reset' });
     res.json({ ok: true, email: a.email });
   })
 );
@@ -1588,6 +1632,8 @@ app.post(
       return { id: rid, attempts: att.length };
     });
     await audit(req, 'round_archive', { id: out.id, name, attempts: out.attempts, clearParticipants });
+    emit('attempts_cleared');
+    emit('participants');
     res.json({ ok: true, ...out, name });
   })
 );

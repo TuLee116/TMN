@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
+import { connect } from '../lib/live.js';
 import { Loading, Notice, Button } from '../lib/ui.jsx';
 import Landing from './Landing.jsx';
 import ExamView from './ExamView.jsx';
@@ -21,7 +22,7 @@ export default function CandidateApp() {
   const load = useCallback(async () => {
     try {
       const [i, s] = await Promise.all([api('/exam/info'), api('/exam/state')]);
-      setInfo(i);
+      setInfo({ ...i, receivedAt: Date.now() });
       setAttempt(s.attempt);
       setError('');
     } catch (e) {
@@ -35,13 +36,39 @@ export default function CandidateApp() {
     return s.attempt;
   }, []);
 
-  const reloadInfo = useCallback(async () => setInfo(await api('/exam/info')), []);
+  const reloadInfo = useCallback(async () => setInfo({ ...(await api('/exam/info')), receivedAt: Date.now() }), []);
 
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => () => streamRef.current?.getTracks().forEach((t) => t.stop()), []);
+
+  // Thời gian thực: máy chủ báo thay đổi cấu hình / bài làm (thu bài, chấm xong, cho thi lại…)
+  const attemptId = attempt?.id || null;
+  useEffect(() => {
+    if (attempt === undefined) return;
+    return connect(
+      '/api/exam/stream',
+      (ev) => {
+        if (ev.type === 'settings') reloadInfo().catch(() => {});
+        else if (ev.type === 'attempt') refreshState().catch(() => {});
+      },
+      () => load()
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attemptId, attempt === undefined]);
+
+  // Bài bị kết thúc từ phía quản trị (thu bài / cho thi lại): thoát toàn màn hình, tắt camera
+  const prevStatus = useRef(null);
+  useEffect(() => {
+    const st = attempt?.status || null;
+    if (prevStatus.current === 'in_progress' && st !== 'in_progress') {
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+      setStream(null);
+    }
+    prevStatus.current = st;
+  }, [attempt?.status, setStream]);
 
   if (error && !info)
     return (

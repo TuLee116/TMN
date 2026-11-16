@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isAttemptEvent, isResultEvent, useAdminLive } from '../lib/live.js';
 import { api } from '../lib/api.js';
 import { fmtNum, fmtSpan, fmtVnLocal, STATUS_LABEL, STATUS_TONE, vnLocalToDate } from '../lib/format.js';
 import { Badge, Button, Icon, Loading, Notice } from '../lib/ui.jsx';
@@ -16,9 +17,10 @@ export default function OverviewTab({ goto }) {
     setErr('');
   }, []);
 
+  useAdminLive(() => true, () => load().catch(() => {}), 1500);
   useEffect(() => {
     load().catch((e) => setErr(e.message));
-    const t = setInterval(() => load().catch(() => {}), 30_000);
+    const t = setInterval(() => load().catch(() => {}), 60_000);
     const c = setInterval(() => tick((x) => x + 1), 1000);
     return () => {
       clearInterval(t);

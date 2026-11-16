@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isAttemptEvent, isResultEvent, useAdminLive } from '../lib/live.js';
 import { api, download } from '../lib/api.js';
 import { STATUS_LABEL, STATUS_TONE } from '../lib/format.js';
 import { Badge, Button, Card, Check, Field, Icon, inputCls, Loading, Modal, Notice, Spinner } from '../lib/ui.jsx';
@@ -18,6 +19,7 @@ export default function ArchiveTab({ goto }) {
     const [s, p] = await Promise.all([api('/admin/settings'), api('/admin/participation')]);
     setInfo({ status: s.status, counts: p.counts, title: s.settings.title });
   }, []);
+  useAdminLive((ev) => isAttemptEvent(ev) || ev.type === 'settings', () => load().catch(() => {}), 1000);
   useEffect(() => {
     load().catch((e) => setMsg({ tone: 'error', text: e.message }));
   }, [load]);
@@ -254,7 +256,7 @@ export default function ArchiveTab({ goto }) {
   );
 }
 
-const ST_TONE = { in_progress: 'blue', overdue: 'amber', submitted: 'green', auto_submitted: 'green' };
+const ST_TONE = { in_progress: 'green', overdue: 'amber', submitted: 'blue', auto_submitted: 'red' };
 
 function ResetCard({ onDone }) {
   const [rows, setRows] = useState(null);
@@ -268,6 +270,7 @@ function ResetCard({ onDone }) {
     const r = await api('/admin/participation');
     setRows(r.rows.filter((x) => x.attempt_id));
   }, []);
+  useAdminLive(isAttemptEvent, () => load().catch(() => {}), 1000);
   useEffect(() => {
     load().catch((e) => setMsg({ tone: 'error', text: e.message }));
   }, [load]);
@@ -371,6 +374,7 @@ function EmailCard({ goto }) {
   const [progress, setProgress] = useState(null);
 
   const load = useCallback(async () => setSt(await api('/admin/email/status')), []);
+  useAdminLive(isResultEvent, () => load().catch(() => {}), 1500);
   useEffect(() => {
     load().catch((e) => setMsg({ tone: 'error', text: e.message }));
   }, [load]);

@@ -29,7 +29,7 @@ Node.js (Express) + React (Vite, Tailwind) + Postgres, có giám sát webcam b�
 | `EMAIL_DOMAIN` | Không | Mặc định `tanminhnhan.com.vn` |
 | `TEST_MODE` | Không | `true` = chế độ thử (chuyển tab không tự nộp, được thoát toàn màn hình, có nút làm lại) |
 | `MAX_PARTICIPANTS` | Không | Số email tối đa trong danh sách, mặc định 1000 |
-| `PG_POOL_MAX` | Không | Số kết nối Postgres tối đa, mặc định 10 |
+| `PG_POOL_MAX` | Không | Số kết nối Postgres tối đa, mặc định 20 |
 | `PGSSL` | Không | `true` nếu Postgres yêu cầu SSL mà chuỗi kết nối không có `sslmode=require` |
 | `PORT` | Không | Railway tự cấp |
 | `RESEND_API_KEY` | Không | Gửi email kết quả qua Resend (HTTPS) – khuyên dùng trên Railway |
@@ -94,3 +94,11 @@ Bảng dữ liệu tự tạo khi khởi động. Logo tải lên trong tab **C�
   thí sinh cần truy cập được địa chỉ này.
 - Camera chỉ hoạt động trên HTTPS hoặc `localhost` (Railway có HTTPS sẵn).
 - Ngưỡng mặc định (quay đầu 0,12, liếc mắt 0,18, giữ 2 giây) nên chạy thử với vài người trước kỳ thi thật rồi chỉnh trong tab Cấu hình.
+
+## Thời gian thực & sức chịu tải
+
+- Máy chủ đẩy sự kiện qua SSE: `/api/exam/stream` (thí sinh – chỉ sự kiện của chính mình và cấu hình chung), `/api/admin/stream` (admin).
+  Mất kết nối thì trình duyệt tự nối lại và đồng bộ toàn bộ. Bộ phát sự kiện chạy trong bộ nhớ → dùng **1 replica** trên Railway.
+- Cấu hình và ngân hàng câu hỏi được giữ trong bộ nhớ đệm, xóa ngay khi admin thay đổi.
+- Thử tải (máy 4 nhân, Postgres cục bộ, mọi người thao tác **cùng một khoảnh khắc**): 300 thí sinh – 0 lỗi, chậm nhất 0,49 s;
+  600 thí sinh – 0 lỗi, chậm nhất 0,62 s; báo tin tức thì tới 600/600 thí sinh trong ≤ 34 ms.
